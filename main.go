@@ -23,7 +23,7 @@ func Connect(cluster, dbname string) *Connection {
 	return &conn
 }
 
-func (c *Connection) SetPack(key Key, obj interface{}) (e error) {
+/*func (c *Connection) SetPack(key Key, obj interface{}) (e error) {
 	data, err := msgpack.Marshal(obj)
 	if err != nil {
 		return err
@@ -50,10 +50,10 @@ func (c *Connection) GetPack(key Key) *Pack {
 	return &Pack{
 		binary: data.([]byte),
 	}
-}
+}*/
 
 func (c *Connection) Object(name string, schemaObj interface{}) (ret *Object) {
 	ret = &Object{}
-	ret.Init(name, &c.db)
+	ret.Init(name, &c.db, schemaObj)
 	return
 }
