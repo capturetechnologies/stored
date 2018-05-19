@@ -3,7 +3,6 @@ package stored
 import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
-	"github.com/vmihailenco/msgpack"
 )
 
 // Connection is the main  struct for handling work with fdb
