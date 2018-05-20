@@ -30,3 +30,10 @@ type dbUser struct {
 }
 ```
 keeping stored keys short helps to save memory
+
+## Get data by primary ID
+You could use method Get to fetch any object from stored by primary key
+```
+user := User{}
+err := dbUser.Get(1).Scan(&user)
+```

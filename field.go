@@ -8,11 +8,14 @@ import (
 	"strings"
 )
 
+var typeOfBytes = reflect.TypeOf([]byte(nil))
+
 type Field struct {
-	Num   int
-	Kind  reflect.Kind
-	Type  reflect.StructField
-	Value reflect.Value
+	Num     int
+	Kind    reflect.Kind
+	SubKind reflect.Kind
+	Type    reflect.StructField
+	Value   reflect.Value
 }
 
 // Tag is general object for tag parsing
@@ -45,9 +48,23 @@ func (f *Field) GetBytes(obj interface{}) []byte {
 	object := reflect.ValueOf(obj)
 	value := object.Field(f.Num)
 	var buf []byte
-	if f.Kind == reflect.String {
+	switch f.Kind {
+	case reflect.String:
 		buf = []byte(value.String())
-	} else {
+	case reflect.Int: // store int as int32
+		buffer := new(bytes.Buffer)
+		err := binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int)))
+		if err != nil {
+			fmt.Println("GetBytes binary.Write failed:", err)
+		}
+		buf = buffer.Bytes()
+	case reflect.Slice:
+		if f.SubKind == reflect.Uint8 {
+			return value.Bytes()
+		} else {
+			panic("Other slices doesnt realized")
+		}
+	default:
 		buffer := new(bytes.Buffer)
 		err := binary.Write(buffer, binary.LittleEndian, value.Interface())
 		if err != nil {
@@ -64,11 +81,40 @@ func (f *Field) GetInterface(obj interface{}) interface{} {
 	return value.Interface()
 }
 
+func (f *Field) GetDefault() interface{} {
+	switch f.Kind {
+	case reflect.String:
+		return ""
+	case reflect.Int:
+		return 0
+	case reflect.Int32:
+		return int32(0)
+	case reflect.Int64:
+		return int64(0)
+	}
+	return nil
+}
+
 func (f *Field) ToInterface(obj []byte) interface{} {
-	if f.Kind == reflect.String {
+	if len(obj) == 0 {
+		return f.GetDefault()
+	}
+
+	switch f.Kind {
+	case reflect.String:
 		return string(obj)
-	} else {
-		var val interface{}
+	case reflect.Int:
+		return int(int32(binary.LittleEndian.Uint32(obj))) // forceing to store int as int32
+	case reflect.Int32:
+		return int32(binary.LittleEndian.Uint32(obj))
+	case reflect.Int64:
+		return int64(binary.LittleEndian.Uint64(obj))
+	case reflect.Slice:
+		if f.SubKind == reflect.Uint8 { // []byte
+			return obj
+		}
+	default:
+		val := f.Value.Interface()
 		buf := bytes.NewReader(obj)
 		err := binary.Read(buf, binary.LittleEndian, val)
 		if err != nil {
@@ -76,4 +122,5 @@ func (f *Field) ToInterface(obj []byte) interface{} {
 		}
 		return val
 	}
+	panic("type of this field not supported")
 }

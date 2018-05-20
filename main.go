@@ -22,35 +22,6 @@ func Connect(cluster, dbname string) *Connection {
 	return &conn
 }
 
-/*func (c *Connection) SetPack(key Key, obj interface{}) (e error) {
-	data, err := msgpack.Marshal(obj)
-	if err != nil {
-		return err
-	}
-	_, err = c.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		tr.Set(key, data)
-    return
-	})
-  if err != nil {
-		return err
-	}
-  return
-}
-
-func (c *Connection) GetPack(key Key) *Pack {
-	data, err := c.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
-		return tr.Get(key).MustGet(), nil
-	})
-  if err != nil {
-		return &Pack{
-			err: err,
-		}
-  }
-	return &Pack{
-		binary: data.([]byte),
-	}
-}*/
-
 func (c *Connection) Object(name string, schemaObj interface{}) (ret *Object) {
 	ret = &Object{}
 	ret.Init(name, &c.db, schemaObj)

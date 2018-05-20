@@ -1,7 +1,6 @@
 package stored
 
 import (
-	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -39,6 +38,9 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			Value: v.Field(i),
 		}
 		field.Kind = field.Value.Kind()
+		if field.Kind == reflect.Slice {
+			field.SubKind = field.Value.Type().Elem().Kind()
+		}
 		tag := field.ParseTag()
 		if tag != nil {
 			o.Fields[tag.Name] = field
@@ -86,46 +88,34 @@ func (o *Object) Write(tr fdb.Transaction, data interface{}) {
 		value := field.GetBytes(data)
 		k := append(mainKey, key)
 		tr.Set(k, value)
-		fmt.Println("set", k, " -> ", value)
+		//fmt.Println("kv set:", key, value)
 	}
 }
 
 func (o *Object) Set(data interface{}) error {
-	fmt.Println("transaction start")
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		o.Write(tr, data)
 		return
 	})
-	fmt.Println("transaction end")
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (o *Object) toKey(data interface{}) tuple.TupleElement {
-	//return data
-	switch data.(type) {
-	case string:
-		return data.(string)
-	case []byte:
-		return data.([]byte)
-	default:
-		return fmt.Sprintf("%v", data)
-	}
-}
-
 func (o *Object) Get(data interface{}) *Value {
-	key := append(o.key, o.toKey(data))
+	key := append(o.key, data)
 	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		fmt.Println("fetch keys", key)
-		//keyRange := fdb.KeyRange{append(key, ""), append(key, "\xFF")}
 		start, end := key.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
-		fmt.Println("fetch keys", r)
 		res, err := tr.GetRange(r, fdb.RangeOptions{}).GetSliceWithError()
-		fmt.Println("fetch res", res)
+
+		/*keyValue := tr.Get(append(key, "l")).MustGet()
+		fmt.Println("ONE KEY", append(key, "l"), keyValue)
+		keyValue = tr.Get(Key{"fake", 1, "l"}).MustGet()
+		fmt.Println("ONE KEY2", Key{"fake", 1, "l"}, keyValue)*/
+
 		return res, err
 	})
 	if err != nil {
