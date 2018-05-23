@@ -31,7 +31,7 @@ type bigUser struct {
 	Video        string `stored:"video"`
 }
 
-func TestsRun(db *Connection) {
+func TestsSetGet(db *Connection) {
 	fmt.Println("start testing")
 	smUser := db.Object("small_user", smallUser{})
 	bgUser := db.Object("big_user", bigUser{})
@@ -61,5 +61,12 @@ func TestsRun(db *Connection) {
 		fmt.Println("big user get", time.Since(startTime), err)
 		fmt.Println("USER GOT", newUser, newUser2)
 	}
+}
 
+func TestsIndexes(db *Connection) {
+
+}
+
+func TestsRun(db *Connection) {
+	//TestsSetGet(db)
 }

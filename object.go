@@ -13,6 +13,7 @@ type Object struct {
 	primary string
 	key     tuple.Tuple
 	Fields  map[string]Field
+	Indexes map[string]Index
 }
 
 func (o *Object) Init(name string, db *fdb.Database, schemaObj interface{}) {
