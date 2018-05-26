@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -20,7 +21,12 @@ func (o *Object) Init(name string, db *fdb.Database, schemaObj interface{}) {
 	o.name = name
 	o.db = db
 	o.key = tuple.Tuple{name}
+	o.Indexes = map[string]Index{}
 	o.buildSchema(schemaObj)
+}
+
+func (o *Object) GetKey() tuple.Tuple {
+	return o.key
 }
 
 func (o *Object) buildSchema(schemaObj interface{}) {
@@ -56,7 +62,7 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 	return
 }
 
-func (o *Object) getPrimaryValue(data interface{}) interface{} {
+func (o *Object) GetPrimaryField() *Field {
 	if o.primary == "" {
 		panic("Object " + o.name + " has no primary key")
 	}
@@ -64,7 +70,7 @@ func (o *Object) getPrimaryValue(data interface{}) interface{} {
 	if !ok {
 		panic("Object " + o.name + " has invalid primary field")
 	}
-	return field.GetInterface(data)
+	return &field
 }
 
 func (o *Object) Primary(key string) *Object {
@@ -79,23 +85,63 @@ func (o *Object) Primary(key string) *Object {
 	return o
 }
 
-func (o *Object) Write(tr fdb.Transaction, data interface{}) {
-	primary := o.getPrimaryValue(data)
+func (o *Object) addIndex(key string, unique bool) {
+	field, ok := o.Fields[key]
+	if !ok {
+		panic("Object " + o.name + " has no key «" + key + "» could not set index")
+	}
+	_, ok = o.Indexes[key]
+	if ok {
+		panic("Object " + o.name + " already has index «" + key + "»")
+	}
+	o.Indexes[key] = Index{
+		Name:   key,
+		field:  &field,
+		object: o,
+		Unique: unique,
+	}
+}
+
+func (o *Object) Unique(key string) *Object {
+	o.addIndex(key, true)
+	return o
+}
+
+func (o *Object) Index(key string) *Object {
+	o.addIndex(key, false)
+	return o
+}
+
+func (o *Object) Write(tr fdb.Transaction, data interface{}) error {
+	primaryField := o.GetPrimaryField()
+	primary := primaryField.GetInterface(data)
+	primaryBytes := primaryField.GetBytes(data)
 	if primary == nil {
 		panic("Object " + o.name + ", primary key «" + o.primary + "» is undefined")
 	}
-	mainKey := append(o.key, primary)
+	mainKey := append(o.key, o.primary, primary)
 	for key, field := range o.Fields {
 		value := field.GetBytes(data)
 		k := append(mainKey, key)
 		tr.Set(k, value)
-		//fmt.Println("kv set:", key, value)
+		fmt.Println("kv set:", k, value)
 	}
+	for _, index := range o.Indexes {
+		err := index.Write(tr, primary, primaryBytes, data)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (o *Object) Set(data interface{}) error {
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		o.Write(tr, data)
+		e = o.Write(tr, data)
+		/*if e != nil {
+			fmt.Println("canceling transaction")
+			tr.Cancel()
+		}*/
 		return
 	})
 	if err != nil {
@@ -104,18 +150,43 @@ func (o *Object) Set(data interface{}) error {
 	return nil
 }
 
+func (o *Object) GetBy(indexKey string, data interface{}) *Value {
+	index, ok := o.Indexes[indexKey]
+	if !ok {
+		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
+	}
+
+	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		primary, err := index.GetPrimary(tr, data)
+		if err != nil {
+			return nil, err
+		}
+
+		start, end := primary.FDBRangeKeys()
+		r := fdb.KeyRange{Begin: start, End: end}
+
+		res, err := tr.GetRange(r, fdb.RangeOptions{}).GetSliceWithError()
+
+		return res, err
+	})
+	if err != nil {
+		return &Value{err: err}
+	}
+	rows := resp.([]fdb.KeyValue)
+	value := Value{
+		object: o,
+	}
+	value.FromKeyValue(rows)
+	return &value
+}
+
 func (o *Object) Get(data interface{}) *Value {
-	key := append(o.key, data)
+	key := append(o.key, o.primary, data)
 	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		start, end := key.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
 		res, err := tr.GetRange(r, fdb.RangeOptions{}).GetSliceWithError()
-
-		/*keyValue := tr.Get(append(key, "l")).MustGet()
-		fmt.Println("ONE KEY", append(key, "l"), keyValue)
-		keyValue = tr.Get(Key{"fake", 1, "l"}).MustGet()
-		fmt.Println("ONE KEY2", Key{"fake", 1, "l"}, keyValue)*/
 
 		return res, err
 	})

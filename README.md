@@ -9,9 +9,9 @@ db := stored.Connect("./fdb.cluster", "DB")
 ## Define a stored document
 ```
 type dbUser struct {
-	ID    int64  `stored:"i,primary"`
-	Name  string `stored:"n"`
-	Login string `stored:"l"`
+	ID    int64  `stored:"id,primary"`
+	Name  string `stored:"name"`
+	Login string `stored:"login"`
 }
 ```
 
@@ -21,14 +21,19 @@ dbUser = db.Object("user", User{}) // User could be any struct in your project
 ```
 
 ## Set primary key
-Alternative to setting primary in struct define annotation is setting it directly
+Alternative to setting primary in struct define annotation is setting it directly.
 ```
-dbUser.Primary("i")
+dbUser.Primary("id")
 ```
 
 ## Add Index
+*Unique* creates unique index. You could fetch document directly using this index.
 ```
-dbUser.Index("l")
+dbUser.Unique("login")
+```
+*Index* creates regualar index. Could be many rows with this index. You are able to fetch first row or list of rows.
+```
+dbUser.Index("login")
 ```
 
 ## Write data to key

@@ -1,13 +1,14 @@
 package stored
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
 
 type smallUser struct {
-	ID   int64  `stored:"i,primary"`
-	Blob string `stored:"n"`
+	ID    int64  `stored:"i,primary"`
+	Login string `stored:"l"`
 }
 
 type bigUser struct {
@@ -63,10 +64,44 @@ func TestsSetGet(db *Connection) {
 	}
 }
 
-func TestsIndexes(db *Connection) {
+func TestsUnique(db *Connection) {
+	smUser := db.Object("small_user", smallUser{})
+	smUser.Unique("l")
+	err := smUser.Set(smallUser{5, "john2"}) // user setted
+	fmt.Println("set err 1", err)
 
+	gotUser := smallUser{}
+	err = smUser.GetBy("l", "john2").Scan(&gotUser)
+	fmt.Println("get err 2", err, gotUser)
+
+	gotUser2 := smallUser{}
+	err = smUser.Get(5).Scan(&gotUser2)
+	fmt.Println("GOT BY ID", err, gotUser2)
+}
+
+func TestsIndex(db *Connection) error {
+	smUser := db.Object("small_user", smallUser{})
+	smUser.Index("l")
+	err := smUser.Set(smallUser{6, "john2"}) // user setted
+	if err != nil {
+		return err
+	}
+	gotUser := smallUser{}
+	err = smUser.GetBy("l", "john2").Scan(&gotUser)
+	if err != nil {
+		return err
+	}
+	if gotUser.Login != "john2" {
+		return errors.New("User not fetched")
+	}
+	return nil
 }
 
 func TestsRun(db *Connection) {
 	//TestsSetGet(db)
+	err := TestsIndex(db)
+
+	if err != nil {
+		fmt.Println("Tests Error", err)
+	}
 }
