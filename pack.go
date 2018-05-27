@@ -1,6 +1,8 @@
 package stored
 
-import "github.com/vmihailenco/msgpack"
+import (
+	"github.com/vmihailenco/msgpack"
+)
 
 type Pack struct {
 	err    error
@@ -53,3 +55,20 @@ func (p *Pack) Scan(obj interface{}) error {
 	}
 	return nil
 }
+
+// UnpackKeyIndex takes original key tuple and packed key with sub index, checks the key and return only subindex
+/*func UnpackKeyIndex(origin tuple.Tuple, key []byte) (tuple.TupleElement, error) {
+	unpacked, err := tuple.Unpack(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(unpacked)-len(origin) != 1 {
+		return nil, errors.New("no sub index found")
+	}
+	for k, v := range origin {
+		if unpacked[k] != v {
+			return nil, errors.New("no sub index found")
+		}
+	}
+	return unpacked[len(unpacked)-1], nil
+}*/

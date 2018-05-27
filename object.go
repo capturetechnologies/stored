@@ -5,28 +5,50 @@ import (
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 type Object struct {
-	name    string
-	db      *fdb.Database
-	primary string
-	key     tuple.Tuple
-	Fields  map[string]Field
-	Indexes map[string]Index
+	name       string
+	db         *fdb.Database
+	primaryKey string
+	//key       tuple.Tuple
+	directory *Directory
+	subspace  directory.DirectorySubspace
+	primary   directory.DirectorySubspace
+	Fields    map[string]Field
+	Indexes   map[string]Index
 }
 
-func (o *Object) Init(name string, db *fdb.Database, schemaObj interface{}) {
+func (o *Object) Init(name string, db *fdb.Database, dir *Directory, schemaObj interface{}) {
 	o.name = name
 	o.db = db
-	o.key = tuple.Tuple{name}
+	o.directory = dir
+	var err error
+	o.subspace, err = dir.Subspace.CreateOrOpen(db, []string{name}, nil)
+	if err != nil {
+		panic(err)
+	}
+	//o.key = tuple.Tuple{name}
 	o.Indexes = map[string]Index{}
 	o.buildSchema(schemaObj)
 }
 
-func (o *Object) GetKey() tuple.Tuple {
-	return o.key
+func (o *Object) setPrimary(name string) {
+	if o.primaryKey != "" {
+		if o.primaryKey == name {
+			return
+		}
+		panic("Object " + o.name + " primary key already set to «" + o.primaryKey + "», could not set to «" + name + "»")
+	}
+	o.primaryKey = name
+	var err error
+	o.primary, err = o.subspace.CreateOrOpen(o.db, []string{name}, nil)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (o *Object) buildSchema(schemaObj interface{}) {
@@ -52,10 +74,7 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 		if tag != nil {
 			o.Fields[tag.Name] = field
 			if tag.Primary {
-				if o.primary != "" {
-					panic("Object " + o.name + " primary key already set to «" + o.primary + "», could not set to «" + tag.Name + "»")
-				}
-				o.primary = tag.Name
+				o.setPrimary(tag.Name)
 			}
 		}
 	}
@@ -63,25 +82,22 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 }
 
 func (o *Object) GetPrimaryField() *Field {
-	if o.primary == "" {
+	if o.primaryKey == "" {
 		panic("Object " + o.name + " has no primary key")
 	}
-	field, ok := o.Fields[o.primary]
+	field, ok := o.Fields[o.primaryKey]
 	if !ok {
 		panic("Object " + o.name + " has invalid primary field")
 	}
 	return &field
 }
 
-func (o *Object) Primary(key string) *Object {
-	if o.primary != "" {
-		panic("Object " + o.name + " already has primary key")
-	}
-	_, ok := o.Fields[key]
+func (o *Object) Primary(name string) *Object {
+	_, ok := o.Fields[name]
 	if !ok {
-		panic("Object " + o.name + " has no key «" + key + "» could not set primary")
+		panic("Object " + o.name + " has no key «" + name + "» could not set primary")
 	}
-	o.primary = key
+	o.setPrimary(name)
 	return o
 }
 
@@ -94,11 +110,16 @@ func (o *Object) addIndex(key string, unique bool) {
 	if ok {
 		panic("Object " + o.name + " already has index «" + key + "»")
 	}
+	indexSubspace, err := o.subspace.CreateOrOpen(o.db, []string{key}, nil)
+	if err != nil {
+		panic(err)
+	}
 	o.Indexes[key] = Index{
-		Name:   key,
-		field:  &field,
-		object: o,
-		Unique: unique,
+		Name:     key,
+		field:    &field,
+		object:   o,
+		subspace: indexSubspace,
+		Unique:   unique,
 	}
 }
 
@@ -117,14 +138,13 @@ func (o *Object) Write(tr fdb.Transaction, data interface{}) error {
 	primary := primaryField.GetInterface(data)
 	primaryBytes := primaryField.GetBytes(data)
 	if primary == nil {
-		panic("Object " + o.name + ", primary key «" + o.primary + "» is undefined")
+		panic("Object " + o.name + ", primary key «" + o.primaryKey + "» is undefined")
 	}
-	mainKey := append(o.key, o.primary, primary)
 	for key, field := range o.Fields {
 		value := field.GetBytes(data)
-		k := append(mainKey, key)
-		tr.Set(k, value)
-		fmt.Println("kv set:", k, value)
+		k := tuple.Tuple{primary, key}
+		tr.Set(o.primary.Pack(k), value)
+		fmt.Println("kv set:", k, " -> ", value)
 	}
 	for _, index := range o.Indexes {
 		err := index.Write(tr, primary, primaryBytes, data)
@@ -138,10 +158,6 @@ func (o *Object) Write(tr fdb.Transaction, data interface{}) error {
 func (o *Object) Set(data interface{}) error {
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		e = o.Write(tr, data)
-		/*if e != nil {
-			fmt.Println("canceling transaction")
-			tr.Cancel()
-		}*/
 		return
 	})
 	if err != nil {
@@ -156,11 +172,13 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
 	}
 
+	var keysub subspace.Subspace
 	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		primary, err := index.GetPrimary(tr, data)
 		if err != nil {
 			return nil, err
 		}
+		keysub = primary
 
 		start, end := primary.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
@@ -176,14 +194,16 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 	value := Value{
 		object: o,
 	}
-	value.FromKeyValue(rows)
+	value.FromKeyValue(keysub, rows)
 	return &value
 }
 
 func (o *Object) Get(data interface{}) *Value {
-	key := append(o.key, o.primary, data)
+	//key := tuple.Tuple{data}
+	keysub := o.primary.Sub(data)
 	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		start, end := key.FDBRangeKeys()
+		//start, end := key.FDBRangeKeys()
+		start, end := keysub.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
 		res, err := tr.GetRange(r, fdb.RangeOptions{}).GetSliceWithError()
@@ -197,6 +217,6 @@ func (o *Object) Get(data interface{}) *Value {
 	value := Value{
 		object: o,
 	}
-	value.FromKeyValue(rows)
+	value.FromKeyValue(keysub, rows)
 	return &value
 }

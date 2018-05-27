@@ -5,7 +5,7 @@ import (
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 )
 
 type Value struct {
@@ -14,17 +14,18 @@ type Value struct {
 	err    error
 }
 
-func (v *Value) FromKeyValue(rows []fdb.KeyValue) {
+func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 	v.data = map[string]interface{}{}
 	for _, row := range rows {
 
-		key, err := tuple.Unpack(row.Key)
-		if err != nil {
+		key, err := sub.Unpack(row.Key)
+		//key, err := tuple.Unpack(row.Key)
+		if err != nil || len(key) < 1 {
 			fmt.Println("key in invalid", err)
 			continue
 		}
 
-		fieldName, ok := key[len(key)-1].(string)
+		fieldName, ok := key[0].(string)
 		if !ok {
 			fmt.Println("field is not string")
 			continue

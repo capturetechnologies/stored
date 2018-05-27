@@ -27,11 +27,11 @@ dbUser.Primary("id")
 ```
 
 ## Add Index
-*Unique* creates unique index. You could fetch document directly using this index.
+**Unique** creates unique index. You could fetch document directly using this index.
 ```
 dbUser.Unique("login")
 ```
-*Index* creates regualar index. Could be many rows with this index. You are able to fetch first row or list of rows.
+**Index** creates regualar index. Could be many rows with this index. You are able to fetch first row or list of rows.
 ```
 dbUser.Index("login")
 ```

@@ -32,15 +32,41 @@ type bigUser struct {
 	Video        string `stored:"video"`
 }
 
-func TestsSetGet(db *Connection) {
+func TestsSetGet(dir *Directory) error {
 	fmt.Println("start testing")
-	smUser := db.Object("small_user", smallUser{})
-	bgUser := db.Object("big_user", bigUser{})
+	smUser := dir.Object("small_user", smallUser{})
+
+	err := smUser.Set(smallUser{20, "John23"})
+	fmt.Println("small user set", err)
+	if err != nil {
+		return err
+	}
+
+	newUser := smallUser{}
+	err = smUser.Get(20).Scan(&newUser)
+	fmt.Println("small user get", err, newUser)
+	if err != nil {
+		return err
+	}
+	if newUser.Login != "John23" {
+		return errors.New("User not fetched")
+	}
+
+	return nil
+}
+
+func TestsSetGetPerformance(dir *Directory) error {
+	fmt.Println("start testing")
+	smUser := dir.Object("small_user", smallUser{})
+	bgUser := dir.Object("big_user", bigUser{})
 
 	for i := 0; i < 1; i++ {
 		var startTime = time.Now()
 		err := smUser.Set(smallUser{-1, "some relevant amount of information for all the data should be passed with full object"})
 		fmt.Println("small user set", time.Since(startTime), err)
+		if err != nil {
+			return err
+		}
 
 		startTime = time.Now()
 		err = bgUser.Set(bigUser{
@@ -50,56 +76,76 @@ func TestsSetGet(db *Connection) {
 			Bio:      []byte("just some basic info"),
 		})
 		fmt.Println("big user set", time.Since(startTime), err)
+		if err != nil {
+			return err
+		}
 
 		startTime = time.Now()
 		newUser := smallUser{}
 		err = smUser.Get(-1).Scan(&newUser)
 		fmt.Println("small user get", time.Since(startTime), err)
+		if err != nil {
+			return err
+		}
 
 		startTime = time.Now()
 		newUser2 := bigUser{}
 		err = bgUser.Get(1).Scan(&newUser2)
 		fmt.Println("big user get", time.Since(startTime), err)
 		fmt.Println("USER GOT", newUser, newUser2)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func TestsUnique(db *Connection) {
-	smUser := db.Object("small_user", smallUser{})
+func TestsUnique(d *Directory) error {
+	smUser := d.Object("small_user", smallUser{})
 	smUser.Unique("l")
-	err := smUser.Set(smallUser{5, "john2"}) // user setted
-	fmt.Println("set err 1", err)
-
-	gotUser := smallUser{}
-	err = smUser.GetBy("l", "john2").Scan(&gotUser)
-	fmt.Println("get err 2", err, gotUser)
-
-	gotUser2 := smallUser{}
-	err = smUser.Get(5).Scan(&gotUser2)
-	fmt.Println("GOT BY ID", err, gotUser2)
-}
-
-func TestsIndex(db *Connection) error {
-	smUser := db.Object("small_user", smallUser{})
-	smUser.Index("l")
-	err := smUser.Set(smallUser{6, "john2"}) // user setted
+	err := smUser.Set(smallUser{40, "john25"}) // user setted
 	if err != nil {
 		return err
 	}
+
 	gotUser := smallUser{}
-	err = smUser.GetBy("l", "john2").Scan(&gotUser)
+	err = smUser.GetBy("l", "john25").Scan(&gotUser)
 	if err != nil {
 		return err
 	}
-	if gotUser.Login != "john2" {
+	if gotUser.Login != "john25" {
 		return errors.New("User not fetched")
 	}
+	fmt.Println("GOT BY ID", err, gotUser)
+	return nil
+}
+
+func TestsIndex(d *Directory) error {
+	smUser := d.Object("small_user", smallUser{})
+	smUser.Index("l")
+	err := smUser.Set(smallUser{30, "john24"}) // user setted
+	if err != nil {
+		return err
+	}
+	gotUser := smallUser{}
+	err = smUser.GetBy("l", "john24").Scan(&gotUser)
+	if err != nil {
+		return err
+	}
+	if gotUser.Login != "john24" {
+		return errors.New("User not fetched")
+	}
+	fmt.Println("got USER", gotUser)
 	return nil
 }
 
 func TestsRun(db *Connection) {
 	//TestsSetGet(db)
-	err := TestsIndex(db)
+	dir := db.Directory("tests")
+	//err := TestsSetGet(dir)
+	//err := TestsSetGetPerformance(dir)
+	//err := TestsIndex(dir)
+	err := TestsUnique(dir)
 
 	if err != nil {
 		fmt.Println("Tests Error", err)

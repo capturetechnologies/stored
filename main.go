@@ -21,9 +21,3 @@ func Connect(cluster, dbname string) *Connection {
 	}
 	return &conn
 }
-
-func (c *Connection) Object(name string, schemaObj interface{}) (ret *Object) {
-	ret = &Object{}
-	ret.Init(name, &c.db, schemaObj)
-	return
-}
