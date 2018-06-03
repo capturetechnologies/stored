@@ -3,11 +3,12 @@ package stored
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 )
 
 type smallUser struct {
-	ID    int64  `stored:"i,primary"`
+	ID    int    `stored:"i,primary,autoincrement"`
 	Login string `stored:"l"`
 }
 
@@ -32,19 +33,27 @@ type bigUser struct {
 	Video        string `stored:"video"`
 }
 
-func TestsSetGet(dir *Directory) error {
-	fmt.Println("start testing")
+func asset(name string, err error) {
+	if err == nil {
+		fmt.Println("Success «" + name + "»")
+	} else {
+		fmt.Println("Fail «"+name+"»:", err)
+	}
+}
+
+func testsSetGet(dir *Directory) error {
 	smUser := dir.Object("small_user", smallUser{})
 
-	err := smUser.Set(smallUser{20, "John23"})
-	fmt.Println("small user set", err)
+	err := smUser.Set(smallUser{
+		ID:    20,
+		Login: "John23",
+	})
 	if err != nil {
 		return err
 	}
 
 	newUser := smallUser{}
 	err = smUser.Get(20).Scan(&newUser)
-	fmt.Println("small user get", err, newUser)
 	if err != nil {
 		return err
 	}
@@ -55,44 +64,34 @@ func TestsSetGet(dir *Directory) error {
 	return nil
 }
 
-func TestsSetGetPerformance(dir *Directory) error {
-	fmt.Println("start testing")
+func testsSetGetPerformance(dir *Directory) error {
 	smUser := dir.Object("small_user", smallUser{})
 	bgUser := dir.Object("big_user", bigUser{})
 
 	for i := 0; i < 1; i++ {
-		var startTime = time.Now()
-		err := smUser.Set(smallUser{-1, "some relevant amount of information for all the data should be passed with full object"})
-		fmt.Println("small user set", time.Since(startTime), err)
+		err := smUser.Set(smallUser{2, "some relevant amount of information for all the data should be passed with full object"})
 		if err != nil {
 			return err
 		}
 
-		startTime = time.Now()
 		err = bgUser.Set(bigUser{
-			ID:       1,
+			ID:       3,
 			Name:     "hello",
 			FullName: "Jared sull",
 			Bio:      []byte("just some basic info"),
 		})
-		fmt.Println("big user set", time.Since(startTime), err)
 		if err != nil {
 			return err
 		}
 
-		startTime = time.Now()
 		newUser := smallUser{}
-		err = smUser.Get(-1).Scan(&newUser)
-		fmt.Println("small user get", time.Since(startTime), err)
+		err = smUser.Get(2).Scan(&newUser)
 		if err != nil {
 			return err
 		}
 
-		startTime = time.Now()
 		newUser2 := bigUser{}
-		err = bgUser.Get(1).Scan(&newUser2)
-		fmt.Println("big user get", time.Since(startTime), err)
-		fmt.Println("USER GOT", newUser, newUser2)
+		err = bgUser.Get(3).Scan(&newUser2)
 		if err != nil {
 			return err
 		}
@@ -100,7 +99,7 @@ func TestsSetGetPerformance(dir *Directory) error {
 	return nil
 }
 
-func TestsUnique(d *Directory) error {
+func testsUnique(d *Directory) error {
 	smUser := d.Object("small_user", smallUser{})
 	smUser.Unique("l")
 	err := smUser.Set(smallUser{40, "john25"}) // user setted
@@ -116,11 +115,10 @@ func TestsUnique(d *Directory) error {
 	if gotUser.Login != "john25" {
 		return errors.New("User not fetched")
 	}
-	fmt.Println("GOT BY ID", err, gotUser)
 	return nil
 }
 
-func TestsIndex(d *Directory) error {
+func testsIndex(d *Directory) error {
 	smUser := d.Object("small_user", smallUser{})
 	smUser.Index("l")
 	err := smUser.Set(smallUser{30, "john24"}) // user setted
@@ -135,19 +133,123 @@ func TestsIndex(d *Directory) error {
 	if gotUser.Login != "john24" {
 		return errors.New("User not fetched")
 	}
-	fmt.Println("got USER", gotUser)
 	return nil
 }
 
+func testsClear(dir *Directory) error {
+	smUser := dir.Object("small_user", smallUser{})
+	err := smUser.Set(smallUser{1, "TmpJohn"})
+	if err != nil {
+		return err
+	}
+
+	err = dir.Clear()
+	if err != nil {
+		return err
+	}
+
+	newUser := smallUser{}
+	err = smUser.Get(1).Scan(&newUser)
+	if err != nil {
+		if err == ErrNotFound {
+			return nil
+		}
+		return err
+	}
+	if newUser.Login == "TmpJohn" {
+		return errors.New("TestsClear Failed: clear do not work")
+	}
+	return errors.New("TestsClear Failed: should return proper error")
+}
+
+func testsAutoIncrement(dir *Directory) error {
+	type user struct {
+		ID    int    `stored:"i,primary,autoincrement"`
+		Login string `stored:"l"`
+	}
+	dbUser := dir.Object("increment", user{})
+
+	user1 := user{
+		Login: "john",
+	}
+	err := dbUser.Add(&user1)
+	if err != nil {
+		return err
+	}
+	if user1.ID != 1 || user1.Login != "john" {
+		return errors.New("new user1 incorrect")
+	}
+	user2 := user{
+		Login: "sam",
+	}
+	err = dbUser.Add(&user2)
+	if err != nil {
+		return err
+	}
+	if user2.ID != 2 || user2.Login != "sam" {
+		return errors.New("new user2 incorrect")
+	}
+	userGet := user{}
+	err = dbUser.Get(1).Scan(&userGet)
+	if err != nil {
+		return err
+	}
+	if userGet.ID != 1 || userGet.Login != "john" {
+		return errors.New("get user1 incorrect")
+	}
+	err = dbUser.Get(2).Scan(&userGet)
+	if err != nil {
+		return err
+	}
+	if userGet.ID != 2 || userGet.Login != "sam" {
+		return errors.New("get user2 incorrect")
+	}
+	return nil
+}
+
+func testsMultiGet(dir *Directory) error {
+	type user struct {
+		ID    int64  `stored:"i,primary,autoincrement"`
+		Login string `stored:"l"`
+	}
+	dbUser := dir.Object("multi_get", user{})
+	need := []int64{}
+	for i := 0; i < 10; i++ {
+		err := dbUser.Add(&user{
+			Login: "sam" + strconv.Itoa(i),
+		})
+		if err != nil {
+			return err
+		}
+		need = append(need, int64(i+1))
+	}
+	users := []user{}
+	dbUser.MultiGet(need).ScanAll(&users)
+	if len(users) < 10 {
+		return errors.New("user count is incorrect")
+	}
+	for k, v := range users {
+		if int64(k+1) != v.ID {
+			return errors.New("user Id is incorrect")
+		}
+		if "sam"+strconv.Itoa(k) != v.Login {
+			return errors.New("user Login is incorrect")
+		}
+	}
+	return nil
+}
+
+// TestsRun runs tests for STORED FoundationdDB layer
 func TestsRun(db *Connection) {
 	//TestsSetGet(db)
 	dir := db.Directory("tests")
-	//err := TestsSetGet(dir)
-	//err := TestsSetGetPerformance(dir)
-	//err := TestsIndex(dir)
-	err := TestsUnique(dir)
-
-	if err != nil {
-		fmt.Println("Tests Error", err)
-	}
+	dir.Clear()
+	asset("Clear", testsClear(dir))
+	start := time.Now()
+	asset("SetGet", testsSetGet(dir))
+	asset("Index", testsIndex(dir))
+	asset("Unique", testsUnique(dir))
+	asset("AutoIncrement", testsAutoIncrement(dir))
+	asset("MultiGet", testsMultiGet(dir))
+	fmt.Println("elapsed", time.Since(start))
 }
