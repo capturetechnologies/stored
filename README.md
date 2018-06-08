@@ -3,7 +3,7 @@ In development, schema are about to change in future
 
 ## Init the stored schema
 Before working with STORED document layer you should init the layer schema,
-this way you will describe all the objects and indexes. You should location this part of your application
+this way you will describe all the objects and indexes. You should locate this part of your application
 before
 
 ### Connect to DB

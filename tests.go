@@ -8,6 +8,16 @@ import (
 )
 
 type smallUser struct {
+	ID    int    `stored:"i,primary"`
+	Login string `stored:"l"`
+}
+
+type smallChat struct {
+	ID   int64  `stored:"chat_id"`
+	Name string `stored:"name"`
+}
+
+type userAutoInc struct {
 	ID    int    `stored:"i,primary,autoincrement"`
 	Login string `stored:"l"`
 }
@@ -41,8 +51,7 @@ func asset(name string, err error) {
 	}
 }
 
-func testsSetGet(dir *Directory) error {
-	smUser := dir.Object("small_user", smallUser{})
+func testsSetGet(smUser *Object) error {
 
 	err := smUser.Set(smallUser{
 		ID:    20,
@@ -99,9 +108,7 @@ func testsSetGetPerformance(dir *Directory) error {
 	return nil
 }
 
-func testsUnique(d *Directory) error {
-	smUser := d.Object("small_user", smallUser{})
-	smUser.Unique("l")
+func testsUnique(smUser *Object) error {
 	err := smUser.Set(smallUser{40, "john25"}) // user setted
 	if err != nil {
 		return err
@@ -118,9 +125,7 @@ func testsUnique(d *Directory) error {
 	return nil
 }
 
-func testsIndex(d *Directory) error {
-	smUser := d.Object("small_user", smallUser{})
-	smUser.Index("l")
+func testsIndex(smUser *Object) error {
 	err := smUser.Set(smallUser{30, "john24"}) // user setted
 	if err != nil {
 		return err
@@ -162,14 +167,8 @@ func testsClear(dir *Directory) error {
 	return errors.New("TestsClear Failed: should return proper error")
 }
 
-func testsAutoIncrement(dir *Directory) error {
-	type user struct {
-		ID    int    `stored:"i,primary,autoincrement"`
-		Login string `stored:"l"`
-	}
-	dbUser := dir.Object("increment", user{})
-
-	user1 := user{
+func testsAutoIncrement(dbUser *Object) error {
+	user1 := userAutoInc{
 		Login: "john",
 	}
 	err := dbUser.Add(&user1)
@@ -179,7 +178,7 @@ func testsAutoIncrement(dir *Directory) error {
 	if user1.ID != 1 || user1.Login != "john" {
 		return errors.New("new user1 incorrect")
 	}
-	user2 := user{
+	user2 := userAutoInc{
 		Login: "sam",
 	}
 	err = dbUser.Add(&user2)
@@ -189,7 +188,7 @@ func testsAutoIncrement(dir *Directory) error {
 	if user2.ID != 2 || user2.Login != "sam" {
 		return errors.New("new user2 incorrect")
 	}
-	userGet := user{}
+	userGet := userAutoInc{}
 	err = dbUser.Get(1).Scan(&userGet)
 	if err != nil {
 		return err
@@ -207,29 +206,26 @@ func testsAutoIncrement(dir *Directory) error {
 	return nil
 }
 
-func testsMultiGet(dir *Directory) error {
-	type user struct {
-		ID    int64  `stored:"i,primary,autoincrement"`
-		Login string `stored:"l"`
-	}
-	dbUser := dir.Object("multi_get", user{})
-	need := []int64{}
+func testsMultiGet(dbUser *Object) error {
+	need := []int{}
 	for i := 0; i < 10; i++ {
-		err := dbUser.Add(&user{
+		toAdd := userAutoInc{
 			Login: "sam" + strconv.Itoa(i),
-		})
+		}
+		err := dbUser.Add(&toAdd)
 		if err != nil {
 			return err
 		}
-		need = append(need, int64(i+1))
+		need = append(need, i+1)
 	}
-	users := []user{}
+	users := []userAutoInc{}
 	dbUser.MultiGet(need).ScanAll(&users)
 	if len(users) < 10 {
 		return errors.New("user count is incorrect")
 	}
 	for k, v := range users {
-		if int64(k+1) != v.ID {
+		if k+1 != v.ID {
+			fmt.Println("test failed", k+1, v)
 			return errors.New("user Id is incorrect")
 		}
 		if "sam"+strconv.Itoa(k) != v.Login {
@@ -241,15 +237,26 @@ func testsMultiGet(dir *Directory) error {
 
 // TestsRun runs tests for STORED FoundationdDB layer
 func TestsRun(db *Connection) {
-	//TestsSetGet(db)
 	dir := db.Directory("tests")
+	smUser := dir.Object("setget", smallUser{})
+	smUserIndex := dir.Object("index", smallUser{})
+	smUserIndex.Index("l")
+	smUserUnique := dir.Object("unique", smallUser{})
+	smUserUnique.Unique("l")
+	userAutoIncrement := dir.Object("increment", userAutoInc{})
+	userMulti := dir.Object("multi", userAutoInc{})
+	//n2nUser := dir.Object("n2n_user", smallUser{})
+	//n2nChat := dir.Object("n2n_chat", smallChat{})
+	//n2nUserChat := n2nUser.N2N(n2nChat)
 	dir.Clear()
 	asset("Clear", testsClear(dir))
 	start := time.Now()
-	asset("SetGet", testsSetGet(dir))
-	asset("Index", testsIndex(dir))
-	asset("Unique", testsUnique(dir))
-	asset("AutoIncrement", testsAutoIncrement(dir))
-	asset("MultiGet", testsMultiGet(dir))
+	asset("SetGet", testsSetGet(smUser))
+	asset("Index", testsIndex(smUserIndex))
+	asset("Unique", testsUnique(smUserUnique))
+	asset("AutoIncrement", testsAutoIncrement(userAutoIncrement))
+	asset("MultiGet", testsMultiGet(userMulti))
+	//asset("n2n", testsN2N(n2nUser, n2nChat))
 	fmt.Println("elapsed", time.Since(start))
+	start = time.Now()
 }

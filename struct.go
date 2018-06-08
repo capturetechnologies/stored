@@ -29,30 +29,46 @@ func (s *Struct) Get(field *Field) interface{} {
 func (s *Struct) GetBytes(field *Field) []byte {
 	value := s.object.Field(field.Num)
 	var buf []byte
-	switch field.Kind {
-	case reflect.String:
-		buf = []byte(value.String())
-	case reflect.Int: // store int as int32
-		buffer := new(bytes.Buffer)
-		err := binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int)))
-		if err != nil {
-			fmt.Println("GetBytes binary.Write failed:", err)
-		}
-		buf = buffer.Bytes()
-	case reflect.Slice:
+	if field.Kind == reflect.String {
+		return []byte(value.String())
+	}
+	if field.Kind == reflect.Slice {
 		if field.SubKind == reflect.Uint8 {
 			return value.Bytes()
 		} else {
 			panic("Other slices doesnt realized")
 		}
-	default:
-		buffer := new(bytes.Buffer)
-		err := binary.Write(buffer, binary.LittleEndian, value.Interface())
-		if err != nil {
-			fmt.Println("GetBytes binary.Write failed:", err)
-		}
-		buf = buffer.Bytes()
 	}
+	buffer := new(bytes.Buffer)
+	var err error
+	switch field.Kind {
+	case reflect.Int:
+		err = binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int)))
+	case reflect.Int32:
+		err = binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int32)))
+	case reflect.Int8:
+		err = binary.Write(buffer, binary.LittleEndian, int8(value.Interface().(int8)))
+	case reflect.Int16:
+		err = binary.Write(buffer, binary.LittleEndian, int16(value.Interface().(int16)))
+	case reflect.Int64:
+		err = binary.Write(buffer, binary.LittleEndian, int64(value.Interface().(int64)))
+	case reflect.Uint:
+		err = binary.Write(buffer, binary.LittleEndian, uint32(value.Interface().(uint)))
+	case reflect.Uint32:
+		err = binary.Write(buffer, binary.LittleEndian, uint32(value.Interface().(uint32)))
+	case reflect.Uint8:
+		err = binary.Write(buffer, binary.LittleEndian, uint8(value.Interface().(uint8)))
+	case reflect.Uint16:
+		err = binary.Write(buffer, binary.LittleEndian, uint16(value.Interface().(uint16)))
+	case reflect.Uint64:
+		err = binary.Write(buffer, binary.LittleEndian, uint64(value.Interface().(uint64)))
+	default:
+		err = binary.Write(buffer, binary.LittleEndian, value.Interface())
+	}
+	if err != nil {
+		fmt.Println("GetBytes binary.Write failed:", err)
+	}
+	buf = buffer.Bytes()
 	return buf
 }
 

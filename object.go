@@ -19,8 +19,9 @@ type Object struct {
 	dir         directory.DirectorySubspace
 	miscDir     directory.DirectorySubspace
 	primary     directory.DirectorySubspace
-	Fields      map[string]Field
-	Indexes     map[string]Index
+	Fields      map[string]*Field
+	Indexes     map[string]*Index
+	Relations   []*Relation
 }
 
 func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj interface{}) {
@@ -37,7 +38,7 @@ func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj i
 		panic(err)
 	}
 	//o.key = tuple.Tuple{name}
-	o.Indexes = map[string]Index{}
+	o.Indexes = map[string]*Index{}
 	o.buildSchema(schemaObj)
 }
 
@@ -66,7 +67,7 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 	}
 	o.reflectType = t
 	numFields := v.NumField()
-	o.Fields = map[string]Field{}
+	o.Fields = map[string]*Field{}
 	for i := 0; i < numFields; i++ {
 		field := Field{
 			object: o,
@@ -84,7 +85,7 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			if tag.AutoIncrement {
 				field.SetAutoIncrement()
 			}
-			o.Fields[tag.Name] = field
+			o.Fields[tag.Name] = &field
 			if tag.Primary {
 				o.setPrimary(tag.Name)
 			}
@@ -102,7 +103,7 @@ func (o *Object) GetPrimaryField() *Field {
 	if !ok {
 		panic("Object " + o.name + " has invalid primary field")
 	}
-	return &field
+	return field
 }
 
 // Primary sets primary field in case it wasnot set with annotations
@@ -112,6 +113,15 @@ func (o *Object) Primary(name string) *Object {
 		panic("Object " + o.name + " has no key «" + name + "» could not set primary")
 	}
 	o.setPrimary(name)
+	return o
+}
+
+func (o *Object) AutoIncrement(name string) *Object {
+	field, ok := o.Fields[name]
+	if !ok {
+		panic("Object " + o.name + " has no key «" + name + "» could not set autoincrement")
+	}
+	field.SetAutoIncrement()
 	return o
 }
 
@@ -128,9 +138,9 @@ func (o *Object) addIndex(key string, unique bool) {
 	if err != nil {
 		panic(err)
 	}
-	o.Indexes[key] = Index{
+	o.Indexes[key] = &Index{
 		Name:   key,
-		field:  &field,
+		field:  field,
 		object: o,
 		dir:    indexSubspace,
 		Unique: unique,
@@ -147,20 +157,26 @@ func (o *Object) Index(key string) *Object {
 	return o
 }
 
-func (o *Object) Write(tr fdb.Transaction, input *Struct) error {
+func (o *Object) Write(tr fdb.Transaction, input *Struct, clear bool) error {
 	primaryField := o.GetPrimaryField()
-	primary := input.Get(primaryField)
+	primaryID := input.Get(primaryField)
 	primaryBytes := input.GetBytes(primaryField)
-	if primary == nil {
+	if primaryID == nil {
 		panic("Object " + o.name + ", primary key «" + o.primaryKey + "» is undefined")
 	}
+
+	if clear {
+		start, end := o.primary.Sub(primaryID).FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+	}
+
 	for key, field := range o.Fields {
-		value := input.GetBytes(&field)
-		k := tuple.Tuple{primary, key}
+		value := input.GetBytes(field)
+		k := tuple.Tuple{primaryID, key}
 		tr.Set(o.primary.Pack(k), value)
 	}
 	for _, index := range o.Indexes {
-		err := index.Write(tr, primary, primaryBytes, input)
+		err := index.Write(tr, primaryID, primaryBytes, input)
 		if err != nil {
 			return err
 		}
@@ -172,7 +188,7 @@ func (o *Object) Write(tr fdb.Transaction, input *Struct) error {
 func (o *Object) Set(data interface{}) error {
 	input := StructAny(data)
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		e = o.Write(tr, input)
+		e = o.Write(tr, input, true)
 		return
 	})
 	if err != nil {
@@ -190,10 +206,10 @@ func (o *Object) Add(data interface{}) error {
 				incKey := o.miscDir.Pack(tuple.Tuple{"ai", field.Name})
 				tr.Add(incKey, field.Get1())
 				autoIncrementValue := tr.Get(incKey).MustGet()
-				input.Set(&field, autoIncrementValue)
+				input.Set(field, autoIncrementValue)
 			}
 		}
-		e = o.Write(tr, input)
+		e = o.Write(tr, input, false)
 		return
 	})
 	if err != nil {
@@ -210,7 +226,7 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 	}
 
 	var keysub subspace.Subspace
-	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
 		primary, err := index.GetPrimary(tr, data)
 		if err != nil {
 			return nil, err
@@ -220,7 +236,9 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 		start, end := primary.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
-		res, err := tr.GetRange(r, fdb.RangeOptions{}).GetSliceWithError()
+		res, err := tr.GetRange(r, fdb.RangeOptions{
+			Mode: fdb.StreamingModeWantAll,
+		}).GetSliceWithError()
 
 		return res, err
 	})
@@ -239,9 +257,8 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 func (o *Object) Get(data interface{}) *Value {
 	//key := tuple.Tuple{data}
 	key := o.primary.Sub(data)
-	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
 		res, err := NeedRange(tr, key).GetSliceWithError()
-
 		return res, err
 	})
 	if err != nil {
@@ -259,13 +276,87 @@ func (o *Object) Get(data interface{}) *Value {
 }
 
 // MultiGet fetch list of objects using primary id
-func (o *Object) MultiGet(data []int64) *Slice {
-	resp, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		needed := make([]fdb.RangeResult, len(data))
-		for k, v := range data { // iterate each key
-			needed[k] = NeedRange(tr, o.primary.Sub(v))
+func (o *Object) MultiGet(data interface{}) *Slice {
+	primaryField := o.GetPrimaryField()
+	var dataKeys []subspace.Subspace
+	switch primaryField.Kind {
+	case reflect.Int32:
+		vData, ok := data.([]int32)
+		if !ok {
+			panic("you should pass []int32 to the multiget")
 		}
-		results := make([][]fdb.KeyValue, len(data))
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.Int:
+		vData, ok := data.([]int)
+		if !ok {
+			panic("you should pass []int to the multiget")
+		}
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.Int64:
+		vData, ok := data.([]int64)
+		if !ok {
+			panic("you should pass []int64 to the multiget")
+		}
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.Int8:
+		vData, ok := data.([]int8)
+		if !ok {
+			panic("you should pass []int8 to the multiget")
+		}
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.Int16:
+		vData, ok := data.([]int16)
+		if !ok {
+			panic("you should pass []int16 to the multiget")
+		}
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.String:
+		vData, ok := data.([]string)
+		if !ok {
+			panic("you should pass []string to the multiget")
+		}
+		dataKeys = make([]subspace.Subspace, len(vData))
+		for k, v := range vData {
+			dataKeys[k] = o.primary.Sub(v)
+		}
+	case reflect.Slice:
+		if primaryField.SubKind == reflect.Uint8 {
+			vData, ok := data.([]byte)
+			if !ok {
+				panic("you should pass [][]byte to the multiget")
+			}
+			dataKeys = make([]subspace.Subspace, len(vData))
+			for k, v := range vData {
+				dataKeys[k] = o.primary.Sub(v)
+			}
+		} else {
+			panic("only []byte slice supported for multiget")
+		}
+	default:
+		panic("type not supported for multiget")
+	}
+
+	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
+		needed := make([]fdb.RangeResult, len(dataKeys))
+		for k, v := range dataKeys { // iterate each key
+			needed[k] = NeedRange(tr, v)
+		}
+		results := make([][]fdb.KeyValue, len(dataKeys))
 		for k, v := range needed {
 			res, err := v.GetSliceWithError()
 			if err != nil {
@@ -284,7 +375,7 @@ func (o *Object) MultiGet(data []int64) *Slice {
 	}
 	slice := Slice{}
 	for k, v := range rows {
-		key := o.primary.Sub(data[k])
+		key := dataKeys[k]
 		value := Value{
 			object: o,
 		}
@@ -292,4 +383,13 @@ func (o *Object) MultiGet(data []int64) *Slice {
 		slice.Append(&value)
 	}
 	return &slice
+}
+
+// Creates object to object relation between current object and other one
+// N2N represents relations when unlimited number of host objects connected to unlimited
+// amount of client objects
+func (o *Object) N2N(client *Object) *Relation {
+	rel := Relation{}
+	rel.Init(RelationN2N, o, client)
+	return &rel
 }

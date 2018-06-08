@@ -36,6 +36,7 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 			fmt.Println("field has no value")
 			continue
 		}
+
 		//fmt.Println("kv get:", fieldName, row.Value, field.ToInterface(row.Value))
 		v.data[fieldName] = field.ToInterface(row.Value)
 	}

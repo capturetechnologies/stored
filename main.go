@@ -17,10 +17,10 @@ type Connection struct {
 var ErrNotFound = errors.New("Document not found")
 
 // Connect is main constructor for creating connections
-func Connect(cluster, dbname string) *Connection {
+func Connect(cluster string) *Connection {
 	fdb.MustAPIVersion(510)
 	conn := Connection{
-		db: fdb.MustOpen(cluster, []byte(dbname)),
+		db: fdb.MustOpen(cluster, []byte("DB")),
 	}
 	return &conn
 }
@@ -39,8 +39,8 @@ func (c *Connection) Directory(name string) *Directory {
 }
 
 // NeedRange return promise for objects data by primary key
-func NeedRange(tr fdb.Transaction, key subspace.Subspace) fdb.RangeResult {
+func NeedRange(tr fdb.ReadTransaction, key subspace.Subspace) fdb.RangeResult {
 	start, end := key.FDBRangeKeys()
 	r := fdb.KeyRange{Begin: start, End: end}
-	return tr.GetRange(r, fdb.RangeOptions{})
+	return tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll})
 }
