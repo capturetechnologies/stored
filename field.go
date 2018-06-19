@@ -3,6 +3,7 @@ package stored
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -76,15 +77,62 @@ func (f *Field) GetDefault() interface{} {
 	case reflect.Uint64:
 		return uint64(0)
 	default:
-		panic("unsupported type for getdefault")
+		panic("unsupported type for getdefault " + fmt.Sprintf("%v", f.Kind))
 	}
+}
+
+func (f *Field) ToBytes(val interface{}) ([]byte, error) {
+	var buf []byte
+	buffer := new(bytes.Buffer)
+	var err error
+	switch f.Kind {
+	case reflect.Int:
+		intVal, ok := val.(int)
+		if !ok {
+			return nil, errors.New("should be int")
+		}
+		return Int(intVal), nil
+	case reflect.Int32:
+		intVal, ok := val.(int32)
+		if !ok {
+			return nil, errors.New("should be int32")
+		}
+		return Int32(intVal), nil
+	case reflect.Int8:
+		err = binary.Write(buffer, binary.LittleEndian, int8(val.(int8)))
+	case reflect.Int16:
+		err = binary.Write(buffer, binary.LittleEndian, int16(val.(int16)))
+	case reflect.Int64:
+		intVal, ok := val.(int64)
+		if !ok {
+			return nil, errors.New("should be int64")
+		}
+		return Int64(intVal), nil
+	case reflect.Uint:
+		err = binary.Write(buffer, binary.LittleEndian, uint32(val.(uint)))
+	case reflect.Uint32:
+		err = binary.Write(buffer, binary.LittleEndian, uint32(val.(uint32)))
+	case reflect.Uint8:
+		err = binary.Write(buffer, binary.LittleEndian, uint8(val.(uint8)))
+	case reflect.Uint16:
+		err = binary.Write(buffer, binary.LittleEndian, uint16(val.(uint16)))
+	case reflect.Uint64:
+		err = binary.Write(buffer, binary.LittleEndian, uint64(val.(uint64)))
+	default:
+		err = binary.Write(buffer, binary.LittleEndian, val)
+	}
+	if err != nil {
+		fmt.Println("GetBytes binary.Write failed:", err)
+		return nil, err
+	}
+	buf = buffer.Bytes()
+	return buf, nil
 }
 
 func (f *Field) ToInterface(obj []byte) interface{} {
 	if len(obj) == 0 {
 		return f.GetDefault()
 	}
-
 	switch f.Kind {
 	case reflect.String:
 		return string(obj)
@@ -125,6 +173,22 @@ func (f *Field) Get1() []byte {
 		return []byte{'\x01', '\x00'}
 	case reflect.Int8, reflect.Uint8:
 		return []byte{'\x01'}
+	default:
+		f.panic("do not support autoincrement")
+	}
+	return []byte{}
+}
+
+func (f *Field) GetMinus1() []byte {
+	switch f.Kind {
+	case reflect.Int64, reflect.Uint64:
+		return []byte{'\xff', '\xff', '\xff', '\xff', '\xff', '\xff', '\xff', '\xff'}
+	case reflect.Int, reflect.Int32, reflect.Uint32:
+		return []byte{'\xff', '\xff', '\xff', '\xff'}
+	case reflect.Int16, reflect.Uint16:
+		return []byte{'\xff', '\xff'}
+	case reflect.Int8, reflect.Uint8:
+		return []byte{'\xff'}
 	default:
 		f.panic("do not support autoincrement")
 	}

@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"bytes"
 	"errors"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -18,57 +19,66 @@ type Index struct {
 	field  *Field
 }
 
-func (i *Index) Write(tr fdb.Transaction, primary interface{}, primaryBytes []byte, input *Struct) error {
+func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struct) error {
 	indexValue := input.Get(i.field)
 	if i.Unique {
 		key := tuple.Tuple{indexValue}
 		previousPromise := tr.Get(i.dir.Pack(key))
 
-		tr.Set(i.dir.Pack(key), primaryBytes) // will be cancelled in case of error
+		tr.Set(i.dir.Pack(key), primaryTuple.Pack()) // will be cancelled in case of error
 
 		previousBytes, err := previousPromise.Get()
 		if err != nil {
 			return err
 		}
 		if len(previousBytes) != 0 {
-			previous := i.object.GetPrimaryField().ToInterface(previousBytes)
-			if previous != primary {
+			//previousTuple := tuple.Unpack(previousBytes)
+			//previous := i.object.GetPrimaryField().ToInterface(previousBytes)
+			if !bytes.Equal(primaryTuple.Pack(), previousBytes) {
+				//if previousTuple != primaryTuple {
 				return errors.New("Object with this index already set")
 			}
 		}
 	} else {
-		key := tuple.Tuple{indexValue, primary}
+		key := append(tuple.Tuple{indexValue}, primaryTuple...)
 		tr.Set(i.dir.Pack(key), []byte{})
 	}
 	return nil
 }
 
 func (i *Index) GetPrimary(tr fdb.ReadTransaction, data interface{}) (subspace.Subspace, error) {
-	indexKey := tuple.Tuple{data}
+	//indexKey := tuple.Tuple{data}
+	sub := i.dir.Sub(data)
 	if i.Unique {
-		bytes, err := tr.Get(i.dir.Pack(indexKey)).Get()
+		bytes, err := tr.Get(sub).Get()
 		if err != nil {
 			return nil, err
 		}
 		if len(bytes) == 0 {
 			return nil, ErrNotFound
 		}
-		primaryField := i.object.GetPrimaryField()
-		primaryData := primaryField.ToInterface(bytes)
+		primaryTuple, err := tuple.Unpack(bytes)
+		if err != nil {
+			return nil, err
+		}
 
-		return i.object.primary.Sub(primaryData), nil
+		//primaryField := i.object.GetPrimaryField()
+		//primaryData := primaryField.ToInterface(bytes)
+
+		return i.object.primary.Sub(primaryTuple...), nil
 	} else {
-		sel := fdb.FirstGreaterThan(i.dir.Pack(indexKey))
+
+		sel := fdb.FirstGreaterThan(sub)
 		primaryKey, err := tr.GetKey(sel).Get()
 		if err != nil {
 			return nil, err
 		}
-		primary, err := i.dir.Unpack(primaryKey)
+		primaryTuple, err := sub.Unpack(primaryKey)
 		//primary, err := UnpackKeyIndex(indexKey, primaryKey)
-		if err != nil || len(primary) < 2 || primary[0] != data {
+		if err != nil || len(primaryTuple) < 1 {
 			return nil, ErrNotFound
 		}
 
-		return i.object.primary.Sub(primary[1]), nil
+		return i.object.primary.Sub(primaryTuple...), nil
 	}
 }

@@ -8,10 +8,25 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 )
 
+type valueRaw map[string][]byte
+
 type Value struct {
 	object *Object
 	data   map[string]interface{}
 	err    error
+}
+
+func (v *Value) fromRaw(raw valueRaw) {
+	v.data = map[string]interface{}{}
+	for fieldName, binaryValue := range raw {
+		field, ok := v.object.fields[fieldName]
+
+		if !ok {
+			fmt.Println("field has no value")
+			continue
+		}
+		v.data[fieldName] = field.ToInterface(binaryValue)
+	}
 }
 
 func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
@@ -30,7 +45,7 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 			continue
 		}
 
-		field, ok := v.object.Fields[fieldName]
+		field, ok := v.object.fields[fieldName]
 
 		if !ok {
 			fmt.Println("field has no value")
@@ -48,7 +63,7 @@ func (v *Value) Scan(obj interface{}) error {
 	}
 	object := reflect.ValueOf(obj).Elem()
 	for key, val := range v.data {
-		field, ok := v.object.Fields[key]
+		field, ok := v.object.fields[key]
 		if !ok {
 			continue
 		}
@@ -72,7 +87,7 @@ func (v *Value) Reflect() (reflect.Value, error) {
 	}
 	value = value.Elem()
 	for key, val := range v.data {
-		field, ok := v.object.Fields[key]
+		field, ok := v.object.fields[key]
 		if !ok {
 			continue
 		}

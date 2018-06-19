@@ -1,10 +1,11 @@
 package stored
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"reflect"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 // Struct used for work with input structure
@@ -28,7 +29,6 @@ func (s *Struct) Get(field *Field) interface{} {
 // GetBytes return field as byteSlice
 func (s *Struct) GetBytes(field *Field) []byte {
 	value := s.object.Field(field.Num)
-	var buf []byte
 	if field.Kind == reflect.String {
 		return []byte(value.String())
 	}
@@ -39,37 +39,30 @@ func (s *Struct) GetBytes(field *Field) []byte {
 			panic("Other slices doesnt realized")
 		}
 	}
-	buffer := new(bytes.Buffer)
-	var err error
-	switch field.Kind {
-	case reflect.Int:
-		err = binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int)))
-	case reflect.Int32:
-		err = binary.Write(buffer, binary.LittleEndian, int32(value.Interface().(int32)))
-	case reflect.Int8:
-		err = binary.Write(buffer, binary.LittleEndian, int8(value.Interface().(int8)))
-	case reflect.Int16:
-		err = binary.Write(buffer, binary.LittleEndian, int16(value.Interface().(int16)))
-	case reflect.Int64:
-		err = binary.Write(buffer, binary.LittleEndian, int64(value.Interface().(int64)))
-	case reflect.Uint:
-		err = binary.Write(buffer, binary.LittleEndian, uint32(value.Interface().(uint)))
-	case reflect.Uint32:
-		err = binary.Write(buffer, binary.LittleEndian, uint32(value.Interface().(uint32)))
-	case reflect.Uint8:
-		err = binary.Write(buffer, binary.LittleEndian, uint8(value.Interface().(uint8)))
-	case reflect.Uint16:
-		err = binary.Write(buffer, binary.LittleEndian, uint16(value.Interface().(uint16)))
-	case reflect.Uint64:
-		err = binary.Write(buffer, binary.LittleEndian, uint64(value.Interface().(uint64)))
-	default:
-		err = binary.Write(buffer, binary.LittleEndian, value.Interface())
-	}
+	val, err := field.ToBytes(value.Interface())
 	if err != nil {
-		fmt.Println("GetBytes binary.Write failed:", err)
+		fmt.Println("field to bytes err", err)
 	}
-	buf = buffer.Bytes()
-	return buf
+	return val
+}
+
+// Primary get primary tuple based on input object
+func (s *Struct) Primary(object *Object) tuple.Tuple {
+	if object.primaryFields == nil {
+		object.panic("primary key is undefined")
+	}
+	primary := tuple.Tuple{}
+	for _, field := range object.primaryFields {
+		fieldVal := s.Get(field)
+		primary = append(primary, fieldVal)
+	}
+	return primary
+}
+
+// Subspace get subspace with primary keys for parst object
+func (s *Struct) Subspace(object *Object) subspace.Subspace {
+	primaryTuple := s.Primary(object)
+	return object.primary.Sub(primaryTuple...)
 }
 
 // StructEditable return Struct object with check for pointer (could be editable)
