@@ -1,14 +1,28 @@
 # FoundationDB layer
 In development. Use with care, schema are about to change in future.
 
-## Init the STORED FoundationDB layer
-Before working with STORED document layer you should init the layer schema,
-this way you will describe all the objects and indexes. You should locate this part of your application
-before
+## Init the database
+Before you start STORED document layer must be inited.
+This way you will describe all the objects and indexes. Init part should be executed before
+the actual part of your application. Example:
+```
+var dbUser, dbChat *stored.Object
+var dbUserChat *stored.Relation
+func init() { // init database
+  db := stored.Connect("./fdb.cluster")
+  dir := db.Directory("test")
+  dbUser = dir.Object("user", User{})
+  dbUser.Primary("id").AutoIncrement("id").Unique("login")
+  dbChat = dir.Object("chat", Chat{})
+  dbChat.Primary("id").AutoIncrement("id")
+  dbUserChat := dbUser.N2N(dbChat)
+}
+```
 
+All the steps will be described below:
 #### Connect to DB
 ```
-db := stored.Connect("./fdb.cluster", "DB")
+db := stored.Connect("./fdb.cluster")
 ```
 
 #### Create directory
