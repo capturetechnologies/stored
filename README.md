@@ -1,7 +1,7 @@
 # FoundationDB layer
-In development, schema are about to change in future
+In development. Use with care, schema are about to change in future.
 
-# Init the STORED FoundationDB layer
+## Init the STORED FoundationDB layer
 Before working with STORED document layer you should init the layer schema,
 this way you will describe all the objects and indexes. You should locate this part of your application
 before
@@ -29,33 +29,44 @@ type dbUser struct {
 ```
 List of options available:
 - **primary** indicate primary row, *gets* and *sets* will use this row as index
-- **autoincrement** indicates that row could be autoincremented, this makes **Add** method available
 
-#### Init object
+#### Objects initialization
 Objects is a main workhorse of stored FoundationDB layer.
 You should init objects for all the objects in your application at the initialization part of application.
 ```
 dbUser = testDir.Object("user", User{}) // User could be any struct in your project
 ```
 
-#### Set primary key
+#### Primary keys
 Alternative to setting primary in struct define annotation is setting it directly.
 ```
 dbUser.Primary("id")
 ```
+Primary index could be multiple, for example:
+```
+dbUser.Primary("chat_id", "message_id")
+```
+In this case the combination of values will be the primary key. Fields order should not change.
 
-#### Add Index
+#### AutoIncrement
+Any key could be setup as autoincremented.
+```
+dbUser.AutoIncrement("id")
+```
+this way the value of this field will be set automaticly if **Add** `dbUser.Add(&ubser)` method triggered.
+
+#### Indexes
 **Unique** creates unique index. You could fetch document directly using this index.
 *Add* and *Set* methods would fail if other item with same unique index presented.
 ```
 dbUser.Unique("login")
 ```
-**Index** creates regualar index. Could be many rows with this index. You are able to fetch first row or list of rows.
+**Index** creates regular index. Could be many rows with this index. You are able to fetch first row or list of rows.
 ```
 dbUser.Index("login")
 ```
 
-#### Add Relation
+#### Relations
 **N2N** is the most usefull type of relations between database objects. N2N represents *many* to *many* type of connection.
 ```
 dbUserChat := dbUser.N2N(dbChat)
@@ -63,8 +74,9 @@ dbUserChat := dbUser.N2N(dbChat)
 In this example **dbUserChat** represents relation when any user has unlimited amount of connected chats and any chat has
 unlimited amount of connected users. Also it is available to set any data value to each connection (user to chat and chat to user)
 
-# Working with data
+## Working with data
 If database is successfully inited and schema is set up, you are ok to work with defined database objects.
+Make sure that init section is triggered once and before any work with database.
 
 #### Write data to key
 This way stored will write user object in set of keys each for each field with `stored:"some_key"` type annotation
@@ -75,7 +87,7 @@ dbUser.Set(user)
 If you have **autoincrement** option at your primary field you are able to Add new rows
 ```
 user := User{0, "John", "john"}
-dbUser.Add(user) // after this user.ID will be 1
+dbUser.Add(&user) // after this user.ID will be 1
 ```
 
 #### Get data by primary ID
@@ -109,8 +121,30 @@ There are cases when inside the relation you want to store some data, for exampl
 dbUserChat.SetData(user, chat, stored.Int64(lastMessageID), stored.Now())
 ```
 
+#### Get list of objects using Relation
+Say you have **N2N** relation between users and chats.
+* **GetClients** allow you to fetch all objects using host of this relation
+```
+chats := []Chat{}
+err = dbUserChat.GetClients(user, nil, 100).ScanAll(&chats)
+```
+* **GetHosts** allow you to fetch all objects using client of this relation
+```
+users := []User{}
+err = dbUserChat.GetHosts(chat, nil, 100).ScanAll(&users)
+```
+
+## Testing
+Stored has set of unit tests, you can easily run to check that everything set up properly.
+Use this simple code snippet to run tests on your database
+```
+dbDriver := stored.Connect("./fdb.cluster")
+stored.TestsRun(dbDriver)
+```
+
 # TODO
 - [x] Indexes
 - [x] AutoIncrement
+- [x] Multiple primary
 - [ ] Store schema inside FoundationDB
 - [ ] Schema migration (delete each item with old schema and set with new one)
