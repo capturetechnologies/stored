@@ -16,8 +16,12 @@ type Struct struct {
 // Set sets field value using bytes
 func (s *Struct) Set(field *Field, data []byte) {
 	objField := s.object.Field(field.Num)
-	interfaceValue := reflect.ValueOf(field.ToInterface(data))
-	objField.Set(interfaceValue)
+	err := field.packed.DecodeToValue(data, objField)
+	if err != nil {
+		fmt.Println("Decode to value failed", err)
+	}
+	//interfaceValue := reflect.ValueOf(field.ToInterface(data))
+	//objField.Set(interfaceValue)
 }
 
 // Get return field as interface
@@ -29,12 +33,21 @@ func (s *Struct) Get(field *Field) interface{} {
 // GetBytes return field as byteSlice
 func (s *Struct) GetBytes(field *Field) []byte {
 	value := s.object.Field(field.Num)
-	if field.Kind == reflect.String {
+
+	res, err := field.packed.Encode(value.Interface())
+	if err != nil {
+		fmt.Println("encode GetBytes failed", res)
+	}
+	return res
+
+	/*if field.Kind == reflect.String {
 		return []byte(value.String())
 	}
 	if field.Kind == reflect.Slice {
 		if field.SubKind == reflect.Uint8 {
 			return value.Bytes()
+		} else if field.SubKind == reflect.String {
+
 		} else {
 			panic("Other slices doesnt realized")
 		}
@@ -43,7 +56,7 @@ func (s *Struct) GetBytes(field *Field) []byte {
 	if err != nil {
 		fmt.Println("field to bytes err", err)
 	}
-	return val
+	return val*/
 }
 
 // Primary get primary tuple based on input object
@@ -54,7 +67,7 @@ func (s *Struct) Primary(object *Object) tuple.Tuple {
 	primary := tuple.Tuple{}
 	for _, field := range object.primaryFields {
 		fieldVal := s.Get(field)
-		primary = append(primary, fieldVal)
+		primary = append(primary, field.tupleElement(fieldVal))
 	}
 	return primary
 }

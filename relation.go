@@ -69,12 +69,12 @@ func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
 	return r.SetData(hostOrID, clientOrID, []byte{}, []byte{})
 }
 
-// SetData sets additional data to relation
+// SetData sets additional data to relation.
 func (r *Relation) SetData(hostOrID interface{}, clientOrID interface{}, hostVal []byte, clientVal []byte) error {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
 	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		if r.counter { // increment if not exists
-			val, err := tr.Get(r.hostDir.Pack(tuple.Tuple{hostPrimary, clientPrimary})).Get()
+			val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 			if err != nil {
 				return nil, err
 			}
@@ -160,6 +160,7 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 	//hostSub := r.host.Subspace(objOrID)
 	key := r.hostDir.Sub(hostPrimary...)
 	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		indexData := [][]byte{}
 		start, end := key.FDBRangeKeys()
 		if from != nil {
 			start = key.Pack(r.client.getPrimaryTuple(from)) // add the last key fetched
@@ -187,22 +188,29 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 			key := r.client.primary.Sub(id)
 			needed = append(needed, NeedRange(tr, key))
 			dataKeys = append(dataKeys, key)
+			indexData = append(indexData, kv.Value)
 		}
-		return FetchRange(tr, needed)
+		kv, err := FetchRange(tr, needed)
+		if err != nil {
+			fmt.Printf("Fetch range error: %v\n", err)
+			return nil, err
+		}
+		slice := r.client.wrapRange(kv, dataKeys)
+		slice.indexData = indexData
+		return slice, nil
 	})
-	return r.client.wrapRange(resp, err, dataKeys)
+	if err != nil {
+		return &Slice{err: err}
+	}
+
+	return resp.(*Slice)
 }
 
-func (r *Relation) GetClientIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
-	//primary := r.host.GetPrimaryField()
-	//hostPrimary := primary.fromAnyInterface(objOrID)
-	hostPrimary := r.host.getPrimaryTuple(objOrID)
-	sub := r.hostDir.Sub(hostPrimary...)
-
-	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, sub subspace.Subspace, from interface{}, limit int) *SliceIDs {
+	resp, err := objFrom.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		start, end := sub.FDBRangeKeys()
 		if from != nil {
-			start = sub.Pack(r.client.getPrimaryTuple(from)) // add the last key fetched
+			start = sub.Pack(objRet.getPrimaryTuple(from)) // add the last key fetched
 		}
 		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
 			Limit: limit,
@@ -232,7 +240,19 @@ func (r *Relation) GetClientIDs(objOrID interface{}, from interface{}, limit int
 	return resp.(*SliceIDs)
 }
 
-// Gethosts fetch slice of client objects using host
+func (r *Relation) GetClientIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
+	hostPrimary := r.host.getPrimaryTuple(objOrID)
+	sub := r.hostDir.Sub(hostPrimary...)
+	return r.getSliceIDs(r.host, r.client, sub, from, limit)
+}
+
+func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
+	clientPrimary := r.client.getPrimaryTuple(objOrID)
+	sub := r.clientDir.Sub(clientPrimary...)
+	return r.getSliceIDs(r.client, r.host, sub, from, limit)
+}
+
+// GetHosts fetch slice of client objects using host
 func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *Slice {
 	dataKeys := []subspace.Subspace{}
 	//primary := r.client.GetPrimaryField()
@@ -267,9 +287,16 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 			needed = append(needed, NeedRange(tr, key))
 			dataKeys = append(dataKeys, key)
 		}
-		return FetchRange(tr, needed)
+		kv, err := FetchRange(tr, needed)
+		if err != nil {
+			return nil, err
+		}
+		return r.host.wrapRange(kv, dataKeys), nil
 	})
-	return r.host.wrapRange(resp, err, dataKeys)
+	if err != nil {
+		return &Slice{err: err}
+	}
+	return resp.(*Slice)
 }
 
 func (r *Relation) UpdateHostData(hostOrID interface{}, clientOrID interface{}, hostVal []byte) error {
@@ -286,4 +313,36 @@ func (r *Relation) UpdateHostData(hostOrID interface{}, clientOrID interface{}, 
 		return
 	})
 	return err
+}
+
+// Check return true if relation is set (false) if not set
+func (r *Relation) Check(hostOrID interface{}, clientOrID interface{}) (bool, error) {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+	val, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+		if err != nil {
+			return false, err
+		}
+		if val == nil { // not exists increment here
+			return false, nil
+		}
+		return true, nil
+	})
+	return val.(bool), err
+}
+
+// GetClientDataIDs returns client data bytes
+func (r *Relation) GetClientDataIDs(hostOrID interface{}, clientOrID interface{}) ([]byte, error) {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+	val, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+		if err != nil {
+			return Nan, err
+		}
+		if val == nil { // not exists increment here
+			return Nan, ErrNotFound
+		}
+		return val, nil
+	})
+	return val.([]byte), err
 }

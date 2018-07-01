@@ -4,8 +4,9 @@ import "reflect"
 
 // Slice used for iteration over list of values
 type Slice struct {
-	values []*Value
-	err    error
+	values    []*Value
+	indexData [][]byte
+	err       error
 }
 
 // Append push value inside slice
@@ -13,7 +14,11 @@ func (s *Slice) Append(val *Value) {
 	s.values = append(s.values, val)
 }
 
+// ScanAll fetches all rows from slice
 func (s *Slice) ScanAll(slicePointer interface{}) (e error) {
+	if s.err != nil {
+		return s.err
+	}
 	valuePtr := reflect.ValueOf(slicePointer)
 	value := valuePtr.Elem()
 
@@ -30,4 +35,9 @@ func (s *Slice) ScanAll(slicePointer interface{}) (e error) {
 		value.Set(appended)
 	}
 	return
+}
+
+// GetIndexData return indexData slice of byte array
+func (s *Slice) GetIndexData() [][]byte {
+	return s.indexData
 }

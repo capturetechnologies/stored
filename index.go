@@ -19,6 +19,7 @@ type Index struct {
 	field  *Field
 }
 
+// Write writes index related keys
 func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struct) error {
 	indexValue := input.Get(i.field)
 	if i.Unique {
@@ -44,6 +45,18 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 		tr.Set(i.dir.Pack(key), []byte{})
 	}
 	return nil
+}
+
+// Delete removes selected index
+func (i *Index) Delete(tr fdb.Transaction, input *Struct) {
+	indexValue := input.Get(i.field)
+	sub := i.dir.Sub(indexValue)
+	if i.Unique {
+		tr.Clear(sub)
+	} else {
+		start, end := sub.FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+	}
 }
 
 func (i *Index) GetPrimary(tr fdb.ReadTransaction, data interface{}) (subspace.Subspace, error) {

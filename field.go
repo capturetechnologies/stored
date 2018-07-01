@@ -1,12 +1,13 @@
 package stored
 
 import (
-	"bytes"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/capturetechnologies/stored/packed"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 var typeOfBytes = reflect.TypeOf([]byte(nil))
@@ -21,6 +22,11 @@ type Field struct {
 	Type          reflect.StructField
 	Value         reflect.Value
 	AutoIncrement bool
+	packed        *packed.Packed
+}
+
+func (f *Field) init() {
+	f.packed = packed.New(f.Value)
 }
 
 // Tag is general object for tag parsing
@@ -82,7 +88,9 @@ func (f *Field) GetDefault() interface{} {
 }
 
 func (f *Field) ToBytes(val interface{}) ([]byte, error) {
-	var buf []byte
+	return f.packed.Encode(val)
+
+	/*var buf []byte
 	buffer := new(bytes.Buffer)
 	var err error
 	switch f.Kind {
@@ -126,11 +134,22 @@ func (f *Field) ToBytes(val interface{}) ([]byte, error) {
 		return nil, err
 	}
 	buf = buffer.Bytes()
-	return buf, nil
+	return buf, nil*/
+}
+
+func (f *Field) tupleElement(val interface{}) tuple.TupleElement {
+	if f.Kind == reflect.Uint8 { // byte stored as byte array
+		return []byte{val.(byte)}
+	} else {
+		return val
+	}
 }
 
 func (f *Field) ToInterface(obj []byte) interface{} {
-	if len(obj) == 0 {
+	val := f.packed.DecodeToInterface(obj)
+	return val
+
+	/*if len(obj) == 0 {
 		return f.GetDefault()
 	}
 	switch f.Kind {
@@ -155,44 +174,11 @@ func (f *Field) ToInterface(obj []byte) interface{} {
 		}
 		return val
 	}
-	panic("type of this field not supported")
+	panic("type of this field not supported")*/
 }
 
 func (f *Field) panic(text string) {
 	panic("field «" + f.Name + "» " + text)
-}
-
-// Get1 return binary representation for "1" for increment
-func (f *Field) Get1() []byte {
-	switch f.Kind {
-	case reflect.Int64, reflect.Uint64:
-		return []byte{'\x01', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00'}
-	case reflect.Int, reflect.Int32, reflect.Uint32:
-		return []byte{'\x01', '\x00', '\x00', '\x00'}
-	case reflect.Int16, reflect.Uint16:
-		return []byte{'\x01', '\x00'}
-	case reflect.Int8, reflect.Uint8:
-		return []byte{'\x01'}
-	default:
-		f.panic("do not support autoincrement")
-	}
-	return []byte{}
-}
-
-func (f *Field) GetMinus1() []byte {
-	switch f.Kind {
-	case reflect.Int64, reflect.Uint64:
-		return []byte{'\xff', '\xff', '\xff', '\xff', '\xff', '\xff', '\xff', '\xff'}
-	case reflect.Int, reflect.Int32, reflect.Uint32:
-		return []byte{'\xff', '\xff', '\xff', '\xff'}
-	case reflect.Int16, reflect.Uint16:
-		return []byte{'\xff', '\xff'}
-	case reflect.Int8, reflect.Uint8:
-		return []byte{'\xff'}
-	default:
-		f.panic("do not support autoincrement")
-	}
-	return []byte{}
 }
 
 // SetAutoIncrement checks if everything ok for autoincrements

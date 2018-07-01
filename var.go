@@ -7,6 +7,7 @@ type Var struct {
 	err  error
 }
 
+// Int64  converts variable to int64
 func (v *Var) Int64() (int64, error) {
 	var res int64
 	if v.err != nil {

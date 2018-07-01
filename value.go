@@ -12,6 +12,7 @@ type valueRaw map[string][]byte
 
 type Value struct {
 	object *Object
+	fetch  func()
 	data   map[string]interface{}
 	err    error
 }
@@ -58,6 +59,10 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 }
 
 func (v *Value) Scan(obj interface{}) error {
+	if v.fetch != nil {
+		v.fetch()
+		v.fetch = nil
+	}
 	if v.err != nil {
 		return v.err
 	}
@@ -81,6 +86,10 @@ func (v *Value) Scan(obj interface{}) error {
 
 // Reflect returns link to reflact value of object
 func (v *Value) Reflect() (reflect.Value, error) {
+	if v.fetch != nil {
+		v.fetch()
+		v.fetch = nil
+	}
 	value := reflect.New(v.object.reflectType)
 	if v.err != nil {
 		return value, v.err
@@ -100,6 +109,15 @@ func (v *Value) Reflect() (reflect.Value, error) {
 		objField.Set(interfaceValue)
 	}
 	return value, nil
+}
+
+// Err returns an error
+func (v *Value) Err() error {
+	if v.fetch != nil {
+		v.fetch()
+		v.fetch = nil
+	}
+	return v.err
 }
 
 // Interface returns an interface

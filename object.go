@@ -24,6 +24,7 @@ type Object struct {
 	fields          map[string]*Field
 	Indexes         map[string]*Index
 	Relations       []*Relation
+	keysCount       int
 }
 
 func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj interface{}) {
@@ -78,6 +79,7 @@ func (o *Object) setPrimary(names ...string) {
 }
 
 func (o *Object) buildSchema(schemaObj interface{}) {
+
 	t := reflect.TypeOf(schemaObj)
 	v := reflect.ValueOf(schemaObj)
 	if v.Kind() == reflect.Ptr {
@@ -94,6 +96,7 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			Type:   t.Field(i),
 			Value:  v.Field(i),
 		}
+		field.init()
 		field.Kind = field.Value.Kind()
 		if field.Kind == reflect.Slice {
 			field.SubKind = field.Value.Type().Elem().Kind()
@@ -108,26 +111,24 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			if tag.Primary {
 				o.setPrimary(tag.Name)
 			}
+			o.keysCount++
 		}
 	}
 	return
 }
 
-func (o *Object) wrapRange(resp interface{}, err error, dataKeys []subspace.Subspace) *Slice {
-	if err != nil {
-		return &Slice{err: err}
-	}
-	rows := resp.([][]fdb.KeyValue)
-	if len(rows) == 0 {
-		return &Slice{err: ErrNotFound}
+func (o *Object) wrapRange(rowsList [][]fdb.KeyValue, dataKeys []subspace.Subspace) *Slice {
+	if len(rowsList) == 0 {
+		return &Slice{values: []*Value{}} // empty slice instead of error
+		//return &Slice{err: ErrNotFound}
 	}
 	slice := Slice{}
-	for k, v := range rows {
+	for k, rows := range rowsList {
 		key := dataKeys[k]
 		value := Value{
 			object: o,
 		}
-		value.FromKeyValue(key, v)
+		value.FromKeyValue(key, rows)
 		slice.Append(&value)
 	}
 	return &slice
@@ -198,13 +199,13 @@ func (o *Object) Index(key string) *Object {
 	return o
 }
 
-func (o *Object) Write(tr fdb.Transaction, input *Struct, clear bool) error {
+func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input *Struct, clear bool) error {
 	//primaryField := o.GetPrimaryField()
 	//primaryID := input.Get(primaryField)
 	//primaryBytes := input.GetBytes(primaryField)
 
-	primaryTuple := input.Primary(o)
-	sub := o.primary.Sub(primaryTuple...)
+	//primaryTuple := input.Primary(o)
+	//sub := o.primary.Sub(primaryTuple...)
 
 	//key := o.primary.Sub(primaryID)
 
@@ -230,7 +231,29 @@ func (o *Object) Write(tr fdb.Transaction, input *Struct, clear bool) error {
 func (o *Object) Set(data interface{}) error {
 	input := StructAny(data)
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		e = o.Write(tr, input, true)
+		primaryTuple := input.Primary(o)
+		sub := o.primary.Sub(primaryTuple...)
+
+		// delete all indexes data
+		res := NeedRange(tr, sub)
+		value, err := o.valueFromRange(sub, res)
+		if err != ErrNotFound {
+			if err != nil {
+				return nil, err
+			}
+			err = value.Err()
+			if err != nil {
+				return nil, err
+			}
+			object := StructAny(value.Interface())
+
+			// remove indexes
+			for _, index := range o.Indexes {
+				index.Delete(tr, object)
+			}
+		}
+
+		e = o.doWrite(tr, sub, primaryTuple, input, true)
 		return
 	})
 	if err != nil {
@@ -264,7 +287,7 @@ func (o *Object) getPrimaryTuple(objOrID interface{}) tuple.Tuple {
 	if kind == reflect.Struct {
 		for _, field := range o.primaryFields {
 			row := object.Field(field.Num)
-			res = append(res, row.Interface())
+			res = append(res, field.tupleElement(row.Interface()))
 		}
 	} else {
 		if o.multiplePrimary {
@@ -329,8 +352,36 @@ func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal inter
 	}
 }
 
-// UpdateField sets any value to requested field
-func (o *Object) UpdateField(objOrID interface{}, fieldName string, value interface{}) error {
+func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback func(value interface{}) (interface{}, error)) error {
+	field := o.field(fieldName)
+
+	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
+	sub := o.Subspace(objOrID)
+	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		key := sub.Pack(tuple.Tuple{field.Name})
+		val, err := tr.Get(key).Get()
+		if err != nil {
+			return nil, err
+		}
+		if val == nil {
+			return nil, ErrNotFound
+		}
+		newValue, err := callback(field.ToInterface(val))
+		if err != nil {
+			return nil, err
+		}
+		bytesValue, err := field.ToBytes(newValue)
+		if err != nil {
+			return nil, err
+		}
+		tr.Set(key, bytesValue)
+		return
+	})
+	return err
+}
+
+// SetField sets any value to requested field
+func (o *Object) SetField(objOrID interface{}, fieldName string, value interface{}) error {
 	field := o.field(fieldName)
 	bytesValue, err := field.ToBytes(value)
 	if err != nil {
@@ -360,12 +411,59 @@ func (o *Object) Add(data interface{}) error {
 		for _, field := range o.fields {
 			if field.AutoIncrement {
 				incKey := o.miscDir.Pack(tuple.Tuple{"ai", field.Name})
-				tr.Add(incKey, field.Get1())
+				tr.Add(incKey, field.packed.Plus())
 				autoIncrementValue := tr.Get(incKey).MustGet()
 				input.Set(field, autoIncrementValue)
 			}
 		}
-		e = o.Write(tr, input, false)
+
+		primaryTuple := input.Primary(o)
+		sub := o.primary.Sub(primaryTuple...)
+
+		isSet := tr.GetKey(fdb.FirstGreaterThan(sub))
+		firstKey, err := isSet.Get()
+		if err != nil {
+			return nil, err
+		}
+		if sub.Contains(firstKey) {
+			return nil, ErrAlreadyExist
+		}
+
+		e = o.doWrite(tr, sub, primaryTuple, input, false)
+		return
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Delete removes data
+func (o *Object) Delete(objOrID interface{}) error {
+	//sub := o.Subspace(objOrID)
+	primaryTuple := o.getPrimaryTuple(objOrID)
+	sub := o.primary.Sub(primaryTuple...)
+	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		res := NeedRange(tr, sub)
+		value, err := o.valueFromRange(sub, res)
+		if err != nil {
+			return nil, err
+		}
+		err = value.Err()
+		if err != nil {
+			return nil, err
+		}
+		object := StructAny(value.Interface())
+
+		// remove object key
+		start, end := sub.FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+
+		// remove indexes
+		for _, index := range o.Indexes {
+			index.Delete(tr, object)
+		}
+
 		return
 	})
 	if err != nil {
@@ -397,6 +495,9 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 		if err != nil {
 			return nil, err
 		}
+		if len(rows) == 0 {
+			return nil, ErrNotFound
+		}
 		value := Value{
 			object: o,
 		}
@@ -415,27 +516,59 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 	return &value*/
 }
 
+// MultiGet fetch list of objects using primary id
+func (o *Object) MultiGet(data interface{}) *Slice {
+	dataKeys := o.sliceToKeys(data)
+	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
+		needed := make([]fdb.RangeResult, len(dataKeys))
+		for k, v := range dataKeys { // iterate each key
+			needed[k] = NeedRange(tr, v)
+		}
+		kv, err := FetchRange(tr, needed)
+		if err != nil {
+			return nil, err
+		}
+		return o.wrapRange(kv, dataKeys), nil
+	})
+	if err != nil {
+		return &Slice{err: err}
+	}
+	return resp.(*Slice)
+}
+
+func (o *Object) valueFromRange(sub subspace.Subspace, res fdb.RangeResult) (*Value, error) {
+	rows, err := res.GetSliceWithError()
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, ErrNotFound
+	}
+	value := Value{
+		object: o,
+	}
+	value.FromKeyValue(sub, rows)
+	return &value, nil
+}
+
 // Get fetch object using primary id
 func (o *Object) Get(objOrID interface{}) *Value {
 	//key := tuple.Tuple{data}
 	//key := o.primary.Sub(data)
 	sub := o.Subspace(objOrID)
 	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		res, err := NeedRange(tr, sub).GetSliceWithError()
-		return res, err
+		res := NeedRange(tr, sub)
+		return o.valueFromRange(sub, res)
 	})
 	if err != nil {
 		return &Value{err: err}
 	}
-	rows := resp.([]fdb.KeyValue)
-	if len(rows) == 0 {
-		return &Value{err: ErrNotFound}
-	}
-	value := Value{
-		object: o,
-	}
-	value.FromKeyValue(sub, rows)
-	return &value
+	value := resp.(*Value)
+	return value
+}
+
+func (o *Object) getKeyLimit(limit int) int {
+	return limit * o.keysCount
 }
 
 // Get fetch object using primary id
@@ -454,8 +587,15 @@ func (o *Object) GetList(opts SelectOptions) *Slice {
 	}
 	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
 		start, end := sub.FDBRangeKeys()
+		if opts.From != nil {
+			if opts.Reverse {
+				end = sub.Pack(opts.From)
+			} else {
+				start = sub.Pack(opts.From)
+			}
+		}
 		r := fdb.KeyRange{Begin: start, End: end}
-		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: opts.Limit})
+		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: o.getKeyLimit(opts.Limit), Reverse: opts.Reverse})
 		iterator := rangeResult.Iterator()
 		elem := valueRaw{}
 		res := []valueRaw{}
@@ -602,19 +742,6 @@ func (o *Object) sliceToKeys(data interface{}) []subspace.Subspace {
 	return dataKeys
 }
 
-// MultiGet fetch list of objects using primary id
-func (o *Object) MultiGet(data interface{}) *Slice {
-	dataKeys := o.sliceToKeys(data)
-	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		needed := make([]fdb.RangeResult, len(dataKeys))
-		for k, v := range dataKeys { // iterate each key
-			needed[k] = NeedRange(tr, v)
-		}
-		return FetchRange(tr, needed)
-	})
-	return o.wrapRange(resp, err, dataKeys)
-}
-
 // Creates object to object relation between current object and other one
 // N2N represents relations when unlimited number of host objects connected to unlimited
 // amount of client objects
@@ -622,4 +749,31 @@ func (o *Object) N2N(client *Object) *Relation {
 	rel := Relation{}
 	rel.init(RelationN2N, o, client)
 	return &rel
+}
+
+func (o *Object) Clear() error {
+	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		start, end := o.dir.FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		start, end = o.miscDir.FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		start, end = o.primary.FDBRangeKeys()
+		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		for _, rel := range o.Relations {
+			start, end = rel.hostDir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+
+			start, end = rel.clientDir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+
+			start, end = rel.infoDir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		}
+		for _, index := range o.Indexes {
+			start, end = index.dir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		}
+		return
+	})
+	return err
 }

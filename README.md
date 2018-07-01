@@ -15,7 +15,7 @@ func init() { // init database
   dbUser.Primary("id").AutoIncrement("id").Unique("login")
   dbChat = dir.Object("chat", Chat{})
   dbChat.Primary("id").AutoIncrement("id")
-  dbUserChat := dbUser.N2N(dbChat)
+  dbUserChat = dbUser.N2N(dbChat)
 }
 ```
 
@@ -28,27 +28,28 @@ db := stored.Connect("./fdb.cluster")
 #### Create directory
 All objects should be stored in a directory. Using directories you could separate different logical parts of application.
 ```Go
-testDir := db.Directory("test")
+dir := db.Directory("test")
 ```
 
 #### Define a stored document
-STORED could use any struct defined in your app as a schema, all you need is to add annotations, like ```stored:"id,primary"```
-**primary** tag means this is the primary index, which will identify your object.
+STORED could use any struct defined in your app as a schema, all you need is to add annotations, like ```stored:"online,mutable"```
+**mutual** tag means this field will be changed often, so should not be packed.
 ```Go
 type dbUser struct {
-  ID    int64  `stored:"id,primary"`
+  ID    int64  `stored:"id"`
   Name  string `stored:"name"`
   Login string `stored:"login"`
+  Online bool `stored:"online,mutable"`
 }
 ```
 List of options available:
-- **primary** indicate primary row, *gets* and *sets* will use this row as index
+- **mutable** indicates that field should kept separately if it going to be changed frequently *(not implemented yet)*
 
 #### Objects initialization
 Objects is a main workhorse of stored FoundationDB layer.
 You should init objects for all the objects in your application at the initialization part of application.
 ```Go
-dbUser = testDir.Object("user", User{}) // User could be any struct in your project
+dbUser = dir.Object("user", User{}) // User could be any struct in your project
 ```
 
 #### Primary keys
@@ -150,7 +151,7 @@ err = dbUserChat.GetHosts(chat, nil, 100).ScanAll(&users)
 
 ## Testing
 Stored has set of unit tests, you can easily run to check that everything set up properly.
-Use this simple code snippet to run tests on your database
+Use this simple code snippet to run tests on your database.
 ```Go
 dbDriver := stored.Connect("./fdb.cluster")
 stored.TestsRun(dbDriver)

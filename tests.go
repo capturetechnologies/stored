@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/capturetechnologies/stored/packed"
+
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
@@ -36,26 +38,15 @@ type userAutoInc struct {
 }
 
 type bigUser struct {
-	ID           int64  `stored:"id,primary"`
-	Name         string `stored:"name"`
-	Login        string `stored:"login"`
-	Score        int    `stored:"score"`
-	FullName     string `stored:"full_name"`
-	Relationship string `stored:"rl"`
-	Date         int64  `stored:"d"`
-	TimeStamp    int64  `stored:"ts"`
-	Friends      string `stored:"friends"`
-	Money        int64  `stored:"money"`
-	Rating       int64  `stored:"r"`
-	FriendsCount int64  `stored:"fc"`
-	Distance     int64  `stored:"dist"`
-	Scheme       string `stored:"sch"`
-	Audio        string `stored:"audio"`
-	Photo        string `stored:"photo"`
-	Video        string `stored:"video"`
+	ID        int64          `stored:"id,primary"`
+	Name      string         `stored:"name"`
+	Login     string         `stored:"login"`
+	Score     int            `stored:"score"`
+	FullName  string         `stored:"full_name"`
+	Reactions map[string]int `stored:"reactions"`
 }
 
-func asset(name string, err error) {
+func assert(name string, err error) {
 	if err == nil {
 		fmt.Println("Success «" + name + "»")
 	} else {
@@ -267,6 +258,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	chatToDelete := chat{
 		Name: "Chat to delete",
 	}
+
 	var err error
 	err = n2nUser.Add(&user1)
 	if err != nil {
@@ -297,15 +289,37 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return err
 	}
 
+	var hasConnection bool
+	hasConnection, err = n2nUserChat.Check(user1, chat1)
+	if err != nil {
+		return err
+	}
+	if hasConnection {
+		return errors.New("Check n2n function is failed, true instead of false")
+	}
+
 	err = n2nUserChat.Set(user1, chat1) // add using object
 	if err != nil {
 		return err
 	}
+
+	hasConnection, err = n2nUserChat.Check(user1, chat1)
+	if err != nil {
+		return err
+	}
+	if !hasConnection {
+		return errors.New("Check n2n function is failed, false instead of true")
+	}
+
 	err = n2nUserChat.Set(user1, chatToDelete)
 	if err != nil {
 		return err
 	}
 	err = n2nUserChat.Set(user1, chat2.ID) // add using clients primary id
+	if err != nil {
+		return err
+	}
+	err = n2nUserChat.Set(user1, chat2) // second update same relation should not increment counter
 	if err != nil {
 		return err
 	}
@@ -395,6 +409,30 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	return nil
 }
 
+func testsTypes(dbUser *Object) error {
+	u := bigUser{
+		Login: "wow",
+		Score: 1,
+		Reactions: map[string]int{
+			"hello": 1,
+			"world": 2,
+		},
+	}
+	dbUser.Add(&u)
+
+	fetchedUser := bigUser{}
+	err := dbUser.Get(u.ID).Scan(&fetchedUser)
+	if err != nil {
+		return err
+	}
+
+	if fetchedUser.Score != 1 {
+		return errors.New("score has incorrent value after Update")
+	}
+
+	return nil
+}
+
 func testsEditField(dbUser *Object) error {
 	u := bigUser{
 		Login: "wow",
@@ -412,7 +450,7 @@ func testsEditField(dbUser *Object) error {
 		return errors.New("score has incorrent value after Increment")
 	}
 
-	dbUser.UpdateField(u, "score", 4)
+	dbUser.SetField(u, "score", 4)
 	err = dbUser.Get(u.ID).Scan(&fetchedUser)
 	if err != nil {
 		return err
@@ -515,6 +553,8 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 
 // TestsRun runs tests for STORED FoundationdDB layer
 func TestsRun(db *Connection) {
+	packed.Test()
+
 	dir := db.Directory("tests")
 	smUser := dir.Object("setget", user{})
 	smUserIndex := dir.Object("index", user{})
@@ -538,16 +578,16 @@ func TestsRun(db *Connection) {
 	n2nMessageUser := dbMessage.N2N(n2nUser)
 
 	dir.Clear()
-	asset("Clear", testsClear(dir))
+	assert("Clear", testsClear(dir))
 	start := time.Now()
-	asset("SetGet", testsSetGet(smUser))
-	asset("Index", testsIndex(smUserIndex))
-	asset("Unique", testsUnique(smUserUnique))
-	asset("AutoIncrement", testsAutoIncrement(userAutoIncrement))
-	asset("MultiGet", testsMultiGet(userMulti))
-	asset("n2n", testsN2N(n2nUser, n2nChat, n2nUserChat))
-	asset("incField", testsEditField(dbBigUser))
-	asset("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
+	assert("SetGet", testsSetGet(smUser))
+	assert("Index", testsIndex(smUserIndex))
+	assert("Unique", testsUnique(smUserUnique))
+	assert("AutoIncrement", testsAutoIncrement(userAutoIncrement))
+	assert("MultiGet", testsMultiGet(userMulti))
+	assert("n2n", testsN2N(n2nUser, n2nChat, n2nUserChat))
+	//asset("types", testsTypes(dbBigUser))
+	//asset("incField", testsEditField(dbBigUser))
+	assert("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
 	fmt.Println("elapsed", time.Since(start))
-	start = time.Now()
 }
