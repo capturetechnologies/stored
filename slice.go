@@ -1,12 +1,14 @@
 package stored
 
-import "reflect"
+import (
+	"reflect"
+)
 
 // Slice used for iteration over list of values
 type Slice struct {
-	values    []*Value
-	indexData [][]byte
-	err       error
+	values []*Value
+	//indexData [][]byte
+	err error
 }
 
 // Append push value inside slice
@@ -26,18 +28,35 @@ func (s *Slice) ScanAll(slicePointer interface{}) (e error) {
 		panic("ScanAll object should be slice")
 	}
 
+	pointer := false
+	if value.Type().Elem().Kind() == reflect.Ptr {
+		pointer = true
+	}
+
 	for _, val := range s.values {
 		newStruct, err := val.Reflect()
 		if err != nil {
 			e = err
 		}
-		appended := reflect.Append(value, newStruct)
-		value.Set(appended)
+		if pointer {
+			appended := reflect.Append(value, newStruct.Addr())
+			value.Set(appended)
+		} else {
+			appended := reflect.Append(value, newStruct)
+			value.Set(appended)
+		}
 	}
 	return
 }
 
 // GetIndexData return indexData slice of byte array
-func (s *Slice) GetIndexData() [][]byte {
+/*func (s *Slice) GetIndexData() [][]byte {
 	return s.indexData
+}*/
+
+func (s *Slice) fillFieldData(field *Field, indexData [][]byte) {
+	for k, value := range s.values {
+		data := indexData[k]
+		value.data[field.Name] = field.ToInterface(data)
+	}
 }

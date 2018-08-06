@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 )
 
 // ErrNotFound is an error returned when no rows was found
@@ -14,12 +13,24 @@ var ErrNotFound = errors.New("Document not found")
 var ErrDataCorrupt = errors.New("Data corrupt")
 var ErrAlreadyExist = errors.New("This object already exist")
 
-// NeedRange return promise for objects data by primary key
-func NeedRange(tr fdb.ReadTransaction, key subspace.Subspace) fdb.RangeResult {
-	start, end := key.FDBRangeKeys()
+// needObject return promise for objects data by primary key
+/*func needObject(tr fdb.ReadTransaction, sub subspace.Subspace) fdb.RangeResult {
+	start, end := sub.FDBRangeKeys()
 	r := fdb.KeyRange{Begin: start, End: end}
 	return tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll})
-}
+}*/
+
+// fetchObject returns the kv results of an object
+/*func fetchObject(tr fdb.ReadTransaction, needed fdb.RangeResult) ([]fdb.KeyValue, error) {
+	res, err := v.GetSliceWithError()
+	if err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return nil, ErrNotFound
+	}
+	return res
+}*/
 
 func FetchRange(tr fdb.ReadTransaction, needed []fdb.RangeResult) ([][]fdb.KeyValue, error) {
 	results := make([][]fdb.KeyValue, len(needed))

@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/capturetechnologies/stored/packed"
-
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 type user struct {
@@ -19,6 +17,22 @@ type user struct {
 type chat struct {
 	ID   int    `stored:"id,primary"`
 	Name string `stored:"name"`
+}
+
+type userN2N struct {
+	ID      int    `stored:"id,primary"`
+	Login   string `stored:"login"`
+	N2NData struct {
+		Mute bool
+	} `unstored:"n2n"`
+}
+
+type chatN2N struct {
+	ID      int    `stored:"id,primary"`
+	Name    string `stored:"name"`
+	N2NData struct {
+		Mute bool
+	} `unstored:"n2n"`
 }
 
 type message struct {
@@ -38,12 +52,14 @@ type userAutoInc struct {
 }
 
 type bigUser struct {
-	ID        int64          `stored:"id,primary"`
-	Name      string         `stored:"name"`
-	Login     string         `stored:"login"`
-	Score     int            `stored:"score"`
-	FullName  string         `stored:"full_name"`
-	Reactions map[string]int `stored:"reactions"`
+	ID           int64          `stored:"id,primary"`
+	Name         string         `stored:"name"`
+	Login        string         `stored:"login"`
+	Score        int            `stored:"score"`
+	FullName     string         `stored:"full_name"`
+	Reactions    map[string]int `stored:"reactions"`
+	Subscription bool           `stored:"subscription"`
+	Sandbox      bool           `stored:"sandbox"`
 }
 
 func assert(name string, err error) {
@@ -58,7 +74,7 @@ func testsSetGet(smUser *Object) error {
 	err := smUser.Set(user{
 		ID:    20,
 		Login: "John23",
-	})
+	}).Err()
 	if err != nil {
 		return err
 	}
@@ -80,7 +96,7 @@ func testsSetGetPerformance(dir *Directory) error {
 	bgUser := dir.Object("big_user", bigUser{})
 
 	for i := 0; i < 1; i++ {
-		err := smUser.Set(user{2, "some relevant amount of information for all the data should be passed with full object"})
+		err := smUser.Set(user{ID: 2, Login: "some relevant amount of information for all the data should be passed with full object"}).Err()
 		if err != nil {
 			return err
 		}
@@ -89,7 +105,7 @@ func testsSetGetPerformance(dir *Directory) error {
 			ID:       3,
 			Name:     "hello",
 			FullName: "Jared sull",
-		})
+		}).Err()
 		if err != nil {
 			return err
 		}
@@ -110,7 +126,7 @@ func testsSetGetPerformance(dir *Directory) error {
 }
 
 func testsUnique(smUser *Object) error {
-	err := smUser.Set(user{40, "john25"}) // user setted
+	err := smUser.Set(user{ID: 40, Login: "john25"}).Err() // user setted
 	if err != nil {
 		return err
 	}
@@ -127,7 +143,7 @@ func testsUnique(smUser *Object) error {
 }
 
 func testsIndex(smUser *Object) error {
-	err := smUser.Set(user{30, "john24"}) // user setted
+	err := smUser.Set(user{ID: 30, Login: "john24"}).Err() // user setted
 	if err != nil {
 		return err
 	}
@@ -144,7 +160,7 @@ func testsIndex(smUser *Object) error {
 
 func testsClear(dir *Directory) error {
 	smUser := dir.Object("small_user", user{})
-	err := smUser.Set(user{1, "TmpJohn"})
+	err := smUser.Set(user{ID: 1, Login: "TmpJohn"}).Err()
 	if err != nil {
 		return err
 	}
@@ -172,7 +188,7 @@ func testsAutoIncrement(dbUser *Object) error {
 	user1 := userAutoInc{
 		Login: "john",
 	}
-	err := dbUser.Add(&user1)
+	err := dbUser.Add(&user1).Err()
 	if err != nil {
 		return err
 	}
@@ -182,7 +198,7 @@ func testsAutoIncrement(dbUser *Object) error {
 	user2 := userAutoInc{
 		Login: "sam",
 	}
-	err = dbUser.Add(&user2)
+	err = dbUser.Add(&user2).Err()
 	if err != nil {
 		return err
 	}
@@ -213,7 +229,7 @@ func testsMultiGet(dbUser *Object) error {
 		toAdd := userAutoInc{
 			Login: "sam" + strconv.Itoa(i),
 		}
-		err := dbUser.Add(&toAdd)
+		err := dbUser.Add(&toAdd).Err()
 		if err != nil {
 			return err
 		}
@@ -237,54 +253,54 @@ func testsMultiGet(dbUser *Object) error {
 }
 
 func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
-	user1 := user{
+	user1 := userN2N{
 		Login: "John",
 	}
-	user2 := user{
+	user2 := userN2N{
 		Login: "Sam",
 	}
-	user3 := user{
+	user3 := userN2N{
 		Login: "Nick",
 	}
-	chat1 := chat{
+	chat1 := chatN2N{
 		Name: "Chat name 1",
 	}
-	chat2 := chat{
+	chat2 := chatN2N{
 		Name: "Chat name 2",
 	}
-	chat3 := chat{
+	chat3 := chatN2N{
 		Name: "Chat name 3",
 	}
-	chatToDelete := chat{
+	chatToDelete := chatN2N{
 		Name: "Chat to delete",
 	}
 
 	var err error
-	err = n2nUser.Add(&user1)
+	err = n2nUser.Add(&user1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUser.Add(&user2)
+	err = n2nUser.Add(&user2).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUser.Add(&user3)
+	err = n2nUser.Add(&user3).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nChat.Add(&chat1)
+	err = n2nChat.Add(&chat1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nChat.Add(&chat2)
+	err = n2nChat.Add(&chat2).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nChat.Add(&chat3)
+	err = n2nChat.Add(&chat3).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nChat.Add(&chatToDelete)
+	err = n2nChat.Add(&chatToDelete).Err()
 	if err != nil {
 		return err
 	}
@@ -340,7 +356,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return err
 	}
 
-	chats := []chat{}
+	chats := []chatN2N{}
 	err = n2nUserChat.GetClients(user1, nil, 20).ScanAll(&chats)
 	if err != nil {
 		return err
@@ -369,7 +385,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("incorrect user counter count: " + strconv.Itoa(int(count)))
 	}
 
-	users := []user{}
+	users := []userN2N{}
 	err = n2nUserChat.GetHosts(chat1, nil, 2).ScanAll(&users)
 	if len(users) != 2 {
 		fmt.Println(len(users), "instead of 3", users)
@@ -381,7 +397,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	if users[1].Login != "Sam" || users[1].ID != 2 {
 		return errors.New("user 2 is invalid")
 	}
-	users2 := []user{}
+	users2 := []userN2N{}
 	err = n2nUserChat.GetHosts(chat1, 3, 10).ScanAll(&users2)
 	if users2[0].Login != "Nick" || users2[0].ID != 3 {
 		return errors.New("user 3 is invalid with offset fetching")
@@ -409,6 +425,122 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	return nil
 }
 
+func testsN2NData(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
+	user1 := userN2N{
+		Login: "John",
+		N2NData: struct {
+			Mute bool
+		}{
+			Mute: true,
+		},
+	}
+	user2 := userN2N{
+		Login: "Sam",
+		N2NData: struct {
+			Mute bool
+		}{
+			Mute: false,
+		},
+	}
+	chat1 := chatN2N{
+		Name: "Chat name 1",
+		N2NData: struct {
+			Mute bool
+		}{
+			Mute: true,
+		},
+	}
+	chat2 := chatN2N{
+		Name: "Chat name 2",
+		N2NData: struct {
+			Mute bool
+		}{
+			Mute: false,
+		},
+	}
+	var err error
+	err = n2nUser.Add(&user1).Err()
+	if err != nil {
+		return err
+	}
+	err = n2nUser.Add(&user2).Err()
+	if err != nil {
+		return err
+	}
+	err = n2nChat.Add(&chat1).Err()
+	if err != nil {
+		return err
+	}
+	err = n2nChat.Add(&chat2).Err()
+	if err != nil {
+		return err
+	}
+
+	err = n2nUserChat.Set(user1, chat1)
+	if err != nil {
+		return err
+	}
+	err = n2nUserChat.Set(user1, chat2)
+	if err != nil {
+		return err
+	}
+	err = n2nUserChat.Set(user2, chat1)
+	if err != nil {
+		return err
+	}
+	err = n2nUserChat.Set(user2, chat2)
+	if err != nil {
+		return err
+	}
+
+	chats := []chatN2N{} // list of chats is here
+	err = n2nUserChat.GetClients(user1, nil, 20).ScanAll(&chats)
+	if err != nil {
+		return err
+	}
+	if len(chats) != 2 {
+		return errors.New("fetch " + strconv.Itoa(len(chats)) + " chats, should be 2")
+	}
+	if chats[0].N2NData.Mute != true || chats[1].N2NData.Mute != false {
+		return errors.New("Mute chats data is incorrect")
+	}
+
+	users := []userN2N{} // list of chats is here
+	err = n2nUserChat.GetHosts(chat1, nil, 20).ScanAll(&users)
+	if err != nil {
+		return err
+	}
+	if len(users) != 2 {
+		return errors.New("fetch " + strconv.Itoa(len(users)) + " users, should be 2")
+	}
+	if users[0].N2NData.Mute != true || users[1].N2NData.Mute != false {
+		fmt.Println(users[0], users[1])
+		return errors.New("Mute users data is incorrect")
+	}
+
+	chatGet := chatN2N{}
+	err = n2nUserChat.GetClientData(user1, chat1).Scan(&chatGet)
+	if err != nil {
+		return err
+	}
+	if chatGet.N2NData.Mute != true {
+		fmt.Println("chatGet", chatGet)
+		return errors.New("Mute chat data via GetClientData is incorrect")
+	}
+
+	userGet := chatN2N{}
+	err = n2nUserChat.GetHostData(user2, chat2).Scan(&userGet)
+	if err != nil {
+		return err
+	}
+	if userGet.N2NData.Mute != false {
+		fmt.Println("userGet", userGet)
+		return errors.New("Mute user data via GetHostData is incorrect")
+	}
+
+	return nil
+}
+
 func testsTypes(dbUser *Object) error {
 	u := bigUser{
 		Login: "wow",
@@ -417,8 +549,10 @@ func testsTypes(dbUser *Object) error {
 			"hello": 1,
 			"world": 2,
 		},
+		Subscription: true,
+		Sandbox:      false,
 	}
-	dbUser.Add(&u)
+	dbUser.Add(&u).Err()
 
 	fetchedUser := bigUser{}
 	err := dbUser.Get(u.ID).Scan(&fetchedUser)
@@ -429,6 +563,12 @@ func testsTypes(dbUser *Object) error {
 	if fetchedUser.Score != 1 {
 		return errors.New("score has incorrent value after Update")
 	}
+	if !fetchedUser.Subscription {
+		return errors.New("Subscription is false should be true")
+	}
+	if fetchedUser.Sandbox {
+		return errors.New("Sandbox is true should be false")
+	}
 
 	return nil
 }
@@ -438,11 +578,17 @@ func testsEditField(dbUser *Object) error {
 		Login: "wow",
 		Score: 1,
 	}
-	dbUser.Add(&u)
-	dbUser.IncField(u, "score", 1)
+	err := dbUser.Add(&u).Err()
+	if err != nil {
+		return err
+	}
+	err = dbUser.IncField(u, "score", 1).Err()
+	if err != nil {
+		return err
+	}
 
 	fetchedUser := bigUser{}
-	err := dbUser.Get(u.ID).Scan(&fetchedUser)
+	err = dbUser.Get(u.ID).Scan(&fetchedUser)
 	if err != nil {
 		return err
 	}
@@ -469,7 +615,7 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 		ID:     1,
 		Text:   "first message",
 	}
-	err = dbMessage.Set(&msg)
+	err = dbMessage.Set(&msg).Err()
 	if err != nil {
 		return err
 	}
@@ -478,7 +624,7 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 		ID:     2,
 		Text:   "second message",
 	}
-	err = dbMessage.Set(&msg2)
+	err = dbMessage.Set(&msg2).Err()
 	if err != nil {
 		return err
 	}
@@ -501,17 +647,17 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	}
 
 	// Tesing relations
-	user1 := user{
+	user1 := userN2N{
 		Login: "Sender1",
 	}
-	user2 := user{
+	user2 := userN2N{
 		Login: "Sender2",
 	}
-	err = n2nUser.Add(&user1)
+	err = n2nUser.Add(&user1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUser.Add(&user2)
+	err = n2nUser.Add(&user2).Err()
 	if err != nil {
 		return err
 	}
@@ -523,7 +669,7 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	if err != nil {
 		return err
 	}
-	users := []user{}
+	users := []userN2N{}
 	err = n2nMessageUser.GetClients(msg, nil, 100).ScanAll(&users)
 	if err != nil {
 		return err
@@ -534,10 +680,8 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 
 	// Gest multi get
 	messages := []message{}
-	err = dbMessage.GetList(SelectOptions{
-		Primary: tuple.Tuple{1},
-		Limit:   1000,
-	}).ScanAll(&messages)
+
+	err = dbMessage.List(1).Limit(100).ScanAll(&messages)
 	if err != nil {
 		return err
 	}
@@ -551,8 +695,19 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	return nil
 }
 
+/* TODO
+func Parallel2(dir *Directory) {
+	needed := int64{1,2,3,4}
+	res, err := dir.Do(func(tx stored.TX) {
+		for _,userID := range needed {
+			dbUser.Get(userID).Push(tx)
+		}
+	})
+	users := res.([]*User{})
+}*/
+
 // TestsRun runs tests for STORED FoundationdDB layer
-func TestsRun(db *Connection) {
+func TestsRun(db *Cluster) {
 	packed.Test()
 
 	dir := db.Directory("tests")
@@ -563,12 +718,16 @@ func TestsRun(db *Connection) {
 	smUserUnique.Unique("login")
 	userAutoIncrement := dir.Object("increment", userAutoInc{})
 	userMulti := dir.Object("multi", userAutoInc{})
-	n2nUser := dir.Object("n2n_user", user{})
+	n2nUser := dir.Object("n2n_user", userN2N{})
 	n2nUser.AutoIncrement("id")
-	n2nChat := dir.Object("n2n_chat", chat{})
+	n2nChat := dir.Object("n2n_chat", chatN2N{})
 	n2nChat.AutoIncrement("id")
 	n2nUserChat := n2nUser.N2N(n2nChat)
 	n2nUserChat.Counter(true)
+
+	n2nUserChat2 := n2nUser.N2N(n2nChat)
+	n2nUserChat2.HostData("n2n")
+	n2nUserChat2.ClientData("n2n")
 
 	dbBigUser := dir.Object("big_user", bigUser{})
 	dbBigUser.AutoIncrement("id")
@@ -586,7 +745,8 @@ func TestsRun(db *Connection) {
 	assert("AutoIncrement", testsAutoIncrement(userAutoIncrement))
 	assert("MultiGet", testsMultiGet(userMulti))
 	assert("n2n", testsN2N(n2nUser, n2nChat, n2nUserChat))
-	//asset("types", testsTypes(dbBigUser))
+	assert("n2n_data", testsN2NData(n2nUser, n2nChat, n2nUserChat2))
+	assert("types", testsTypes(dbBigUser))
 	//asset("incField", testsEditField(dbBigUser))
 	assert("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
 	fmt.Println("elapsed", time.Since(start))

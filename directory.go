@@ -9,10 +9,10 @@ import (
 
 // Directory is wrapper around foundation db directories, main entry point for working with STORED
 type Directory struct {
-	Name       string
-	Connection *Connection
-	Subspace   directory.DirectorySubspace
-	objects    map[string]*Object
+	Name     string
+	Cluster  *Cluster
+	Subspace directory.DirectorySubspace
+	objects  map[string]*Object
 }
 
 func (d *Directory) init() {
@@ -22,14 +22,14 @@ func (d *Directory) init() {
 // Object declares new object for document layer
 func (d *Directory) Object(name string, schemaObj interface{}) (ret *Object) {
 	ret = &Object{}
-	ret.init(name, &d.Connection.db, d, schemaObj)
+	ret.init(name, &d.Cluster.db, d, schemaObj)
 	d.objects[name] = ret
 	return
 }
 
 // Clear removes all content inside directory
 func (d *Directory) Clear() error {
-	_, err := d.Connection.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	_, err := d.Cluster.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		//ret, e = d.Subspace.Remove(tr, []string{})
 		if e != nil {
 			fmt.Println("remove directory fail", ret, e)
@@ -54,7 +54,7 @@ func (d *Directory) Clear() error {
 
 // Creates reference object for multi requests
 func (d *Directory) Multi() *MultiChain {
-	mc := MultiChain{db: d.Connection.db}
+	mc := MultiChain{db: d.Cluster.db}
 	mc.init()
 	return &mc
 }

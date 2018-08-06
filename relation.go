@@ -16,13 +16,15 @@ var keyRelHostCount = "a"
 var keyRelClientCount = "b"
 
 type Relation struct {
-	host      *Object
-	client    *Object
-	hostDir   directory.DirectorySubspace
-	clientDir directory.DirectorySubspace
-	infoDir   directory.DirectorySubspace
-	kind      int
-	counter   bool
+	host            *Object
+	client          *Object
+	hostDir         directory.DirectorySubspace
+	clientDir       directory.DirectorySubspace
+	infoDir         directory.DirectorySubspace
+	kind            int
+	counter         bool
+	hostDataField   *Field
+	clientDataField *Field
 }
 
 func (r *Relation) init(kind int, host *Object, client *Object) {
@@ -64,13 +66,86 @@ func (r *Relation) getPrimary(hostObject interface{}, clientObject interface{}) 
 	return hostPrimary, clientPrimary
 }
 
-// Set writes new relation beween objects, you could use objects or values with same types as primary key
-func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
-	return r.SetData(hostOrID, clientOrID, []byte{}, []byte{})
+// getHostData fetches data from object
+func (r *Relation) getHostDataBytes(hostObj interface{}) (hostVal []byte, err error) {
+	if r.hostDataField != nil {
+		hostVal, err = r.hostDataField.BytesFromObject(hostObj)
+		if err != nil {
+			return
+		}
+	} else {
+		hostVal = []byte{}
+	}
+	return
 }
 
-// SetData sets additional data to relation.
-func (r *Relation) SetData(hostOrID interface{}, clientOrID interface{}, hostVal []byte, clientVal []byte) error {
+// getClientData fetches data from object
+func (r *Relation) getClientDataBytes(clientObj interface{}) (clientVal []byte, err error) {
+	if r.clientDataField != nil {
+		clientVal, err = r.clientDataField.BytesFromObject(clientObj)
+		if err != nil {
+			return
+		}
+	} else {
+		clientVal = []byte{}
+	}
+	return
+}
+
+// getData fetches data from object
+func (r *Relation) getData(hostObj interface{}, clientObj interface{}) (hostVal, clientVal []byte, err error) {
+	hostVal, err = r.getHostDataBytes(hostObj)
+	if err != nil {
+		return
+	}
+	clientVal, err = r.getClientDataBytes(clientObj)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func (r *Relation) HostData(fieldName string) {
+	field := r.host.field(fieldName)
+	r.hostDataField = field
+}
+
+func (r *Relation) ClientData(fieldName string) {
+	field := r.client.field(fieldName)
+	r.clientDataField = field
+}
+
+// Add writes new relation beween objects (return ErrAlreadyExist if exists)
+func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) error {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+		if err != nil {
+			return nil, err
+		}
+		if val != nil { // already exists
+			return nil, ErrAlreadyExist
+		}
+		if r.counter { // increment if not exists
+			tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
+			tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
+		}
+
+		// getting data to store inside relation kv
+		hostVal, clientVal, dataErr := r.getData(hostOrID, clientOrID)
+		if dataErr != nil {
+			return nil, dataErr
+		}
+
+		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+		return
+	})
+	return err
+}
+
+// Set writes new relation beween objects, you could use objects or values with same types as primary key
+func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
 	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		if r.counter { // increment if not exists
@@ -83,8 +158,15 @@ func (r *Relation) SetData(hostOrID interface{}, clientOrID interface{}, hostVal
 				tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
 			}
 		}
-		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), hostVal)
-		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), clientVal)
+
+		// getting data to store inside relation kv
+		hostVal, clientVal, dataErr := r.getData(hostOrID, clientOrID)
+		if dataErr != nil {
+			return nil, dataErr
+		}
+
+		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
 		return
 	})
 	return err
@@ -151,13 +233,10 @@ func (r *Relation) GetClientsCount(hostOrID interface{}) (int64, error) {
 	return row.(int64), err
 }
 
-// Getclients fetch slice of client objects using host
+// GetClients fetch slice of client objects using host
 func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *Slice {
-	dataKeys := []subspace.Subspace{}
-	//primary := r.host.GetPrimaryField()
-	//hostPrimary := primary.fromAnyInterface(objOrID)
 	hostPrimary := r.host.getPrimaryTuple(objOrID)
-	//hostSub := r.host.Subspace(objOrID)
+
 	key := r.hostDir.Sub(hostPrimary...)
 	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		indexData := [][]byte{}
@@ -168,7 +247,8 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
 			Limit: limit,
 		}).Iterator()
-		needed := []fdb.RangeResult{}
+		//needed := []fdb.RangeResult{}
+		needed := []*needObject{}
 		for iterator.Advance() {
 			kv, err := iterator.Get()
 			if err != nil {
@@ -185,18 +265,23 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 				panic("empty key")
 			}
 			id := keyTuple[l-1]
-			key := r.client.primary.Sub(id)
-			needed = append(needed, NeedRange(tr, key))
-			dataKeys = append(dataKeys, key)
+			//key := r.client.primary.Sub(id)
+			needed = append(needed, r.client.need(tr, r.client.primary.Sub(id)))
+			//dataKeys = append(dataKeys, key)
 			indexData = append(indexData, kv.Value)
 		}
-		kv, err := FetchRange(tr, needed)
+		slice := r.client.wrapRange(needed)
+		if r.clientDataField != nil {
+			slice.fillFieldData(r.clientDataField, indexData)
+		}
+		//slice.indexData = indexData
+		/*kv, err := FetchRange(tr, needed)
 		if err != nil {
 			fmt.Printf("Fetch range error: %v\n", err)
 			return nil, err
 		}
 		slice := r.client.wrapRange(kv, dataKeys)
-		slice.indexData = indexData
+		slice.indexData = indexData*/
 		return slice, nil
 	})
 	if err != nil {
@@ -206,7 +291,7 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 	return resp.(*Slice)
 }
 
-func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, sub subspace.Subspace, from interface{}, limit int) *SliceIDs {
+func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, dataField *Field, sub subspace.Subspace, from interface{}, limit int) *SliceIDs {
 	resp, err := objFrom.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		start, end := sub.FDBRangeKeys()
 		if from != nil {
@@ -216,7 +301,8 @@ func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, sub subspace.Sub
 			Limit: limit,
 		}).Iterator()
 		slice := SliceIDs{}
-		slice.init()
+		slice.init(objRet)
+		slice.dataField = dataField
 		for iterator.Advance() {
 			kv, err := iterator.Get()
 			if err != nil {
@@ -234,7 +320,8 @@ func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, sub subspace.Sub
 	})
 	if err != nil {
 		return &SliceIDs{
-			err: err,
+			object: objRet,
+			err:    err,
 		}
 	}
 	return resp.(*SliceIDs)
@@ -243,23 +330,24 @@ func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, sub subspace.Sub
 func (r *Relation) GetClientIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
 	hostPrimary := r.host.getPrimaryTuple(objOrID)
 	sub := r.hostDir.Sub(hostPrimary...)
-	return r.getSliceIDs(r.host, r.client, sub, from, limit)
+	return r.getSliceIDs(r.host, r.client, r.clientDataField, sub, from, limit)
 }
 
 func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
 	clientPrimary := r.client.getPrimaryTuple(objOrID)
 	sub := r.clientDir.Sub(clientPrimary...)
-	return r.getSliceIDs(r.client, r.host, sub, from, limit)
+	return r.getSliceIDs(r.client, r.host, r.hostDataField, sub, from, limit)
 }
 
 // GetHosts fetch slice of client objects using host
 func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *Slice {
-	dataKeys := []subspace.Subspace{}
+	//dataKeys := []subspace.Subspace{}
 	//primary := r.client.GetPrimaryField()
 
 	hostPrimary := r.client.getPrimaryTuple(objOrID)
 	key := r.clientDir.Sub(hostPrimary...)
 	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		indexData := [][]byte{}
 		start, end := key.FDBRangeKeys()
 		if from != nil {
 			start = key.Pack(r.host.getPrimaryTuple(from)) // add the last key fetched
@@ -267,7 +355,8 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
 			Limit: limit,
 		}).Iterator()
-		needed := []fdb.RangeResult{}
+		//needed := []fdb.RangeResult{}
+		needed := []*needObject{}
 		for iterator.Advance() {
 			kv, err := iterator.Get()
 			if err != nil {
@@ -283,15 +372,22 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 			if l < 1 {
 				panic("empty key")
 			}
-			key := r.host.primary.Sub(keyTuple...)
-			needed = append(needed, NeedRange(tr, key))
-			dataKeys = append(dataKeys, key)
+			r.host.need(tr, r.host.sub(keyTuple))
+			//key := r.host.primary.Sub(keyTuple...)
+			needed = append(needed, r.host.need(tr, r.host.sub(keyTuple)))
+			//dataKeys = append(dataKeys, key)
+			indexData = append(indexData, kv.Value)
 		}
-		kv, err := FetchRange(tr, needed)
+		slice := r.host.wrapRange(needed)
+		if r.hostDataField != nil {
+			slice.fillFieldData(r.hostDataField, indexData)
+		}
+		return slice, nil
+		/*kv, err := FetchRange(tr, needed)
 		if err != nil {
 			return nil, err
 		}
-		return r.host.wrapRange(kv, dataKeys), nil
+		return r.host.wrapRange(kv, dataKeys), nil*/
 	})
 	if err != nil {
 		return &Slice{err: err}
@@ -299,17 +395,51 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 	return resp.(*Slice)
 }
 
-func (r *Relation) UpdateHostData(hostOrID interface{}, clientOrID interface{}, hostVal []byte) error {
-	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+// UpdateHostData writed new data from host object (host data could be )
+func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) error {
+	hostPrimary, clientPrimary := r.getPrimary(hostObj, clientOrID)
 	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+		row, err := tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
 		if err != nil {
 			return nil, err
 		}
 		if row == nil {
 			return nil, ErrNotFound
 		}
-		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), hostVal)
+
+		// getting data to store inside relation kv
+		hostVal, dataErr := r.getHostDataBytes(hostObj)
+		if dataErr != nil {
+			return nil, dataErr
+		}
+
+		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+		return
+	})
+	return err
+}
+
+// UpdateClientData writed new data from host object (host data could be )
+func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{}) error {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientObj)
+	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		row, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+		if err != nil {
+			return nil, err
+		}
+		if row == nil {
+			fmt.Println("Catched error")
+			return nil, ErrNotFound
+		}
+
+		// getting data to store inside relation kv
+		clientVal, dataErr := r.getClientDataBytes(clientObj)
+		if dataErr != nil {
+			return nil, dataErr
+		}
+		fmt.Println("[CLIENT DATA]", hostPrimary, clientPrimary, "=>", clientVal)
+
+		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
 		return
 	})
 	return err
@@ -345,4 +475,60 @@ func (r *Relation) GetClientDataIDs(hostOrID interface{}, clientOrID interface{}
 		return val, nil
 	})
 	return val.([]byte), err
+}
+
+// GetClientData fetch client data
+func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *Promise {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+	p := r.host.promise()
+	p.do(func() Chain {
+		fetching := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		return func() Chain {
+			val, err := fetching.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			fmt.Println("CLIENT DATA", hostPrimary, clientPrimary, "=>", val)
+			if val == nil { // not exists increment here
+				return p.fail(ErrNotFound)
+			}
+			data := map[string]interface{}{}
+			valueInterface := r.clientDataField.ToInterface(val)
+			data[r.clientDataField.Name] = valueInterface
+			value := Value{
+				object: r.client,
+				data:   data,
+			}
+			p.value = &value
+			return p.done(nil)
+		}
+	})
+	return p
+}
+
+// GetHostData fetch client data
+func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *Promise {
+	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
+	p := r.host.promise()
+	p.do(func() Chain {
+		val, err := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
+		if err != nil {
+			return p.fail(err)
+		}
+		if val == nil { // not exists increment here
+			return p.fail(ErrNotFound)
+		}
+		return func() Chain {
+			data := map[string]interface{}{}
+			valueInterface := r.hostDataField.ToInterface(val)
+			data[r.hostDataField.Name] = valueInterface
+			val := Value{
+				object: r.host,
+				data:   data,
+			}
+			p.value = &val
+			return p.done(nil)
+		}
+	})
+	return p
 }

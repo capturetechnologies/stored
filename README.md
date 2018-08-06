@@ -9,11 +9,16 @@ the actual part of your application. Example:
 var dbUser, dbChat *stored.Object
 var dbUserChat *stored.Relation
 func init() { // init database
-  db := stored.Connect("./fdb.cluster")
-  dir := db.Directory("test")
-  dbUser = dir.Object("user", User{})
+  cluster := stored.Connect("./fdb.cluster")
+  err := cluster.Err()
+  if err != nil {
+    fmt.Println("DB Problem", err)
+    // no "return" needed, if db will wake up, client library will catch it up
+  }
+  db := cluster.Directory("test")
+  dbUser = db.Object("user", User{})
   dbUser.Primary("id").AutoIncrement("id").Unique("login")
-  dbChat = dir.Object("chat", Chat{})
+  dbChat = db.Object("chat", Chat{})
   dbChat.Primary("id").AutoIncrement("id")
   dbUserChat = dbUser.N2N(dbChat)
 }
@@ -22,13 +27,13 @@ func init() { // init database
 All the steps will be described below:
 #### Connect to DB
 ```Go
-db := stored.Connect("./fdb.cluster")
+cluster := stored.Connect("./fdb.cluster")
 ```
 
 #### Create directory
-All objects should be stored in a directory. Using directories you could separate different logical parts of application.
+All objects should be stored in a directory. Using directories you are able to separate different logical parts of application.
 ```Go
-dir := db.Directory("test")
+db := cluster.Directory("test")
 ```
 
 #### Define a stored document
@@ -49,7 +54,7 @@ List of options available:
 Objects is a main workhorse of stored FoundationDB layer.
 You should init objects for all the objects in your application at the initialization part of application.
 ```Go
-dbUser = dir.Object("user", User{}) // User could be any struct in your project
+dbUser = db.Object("user", User{}) // User could be any struct in your project
 ```
 
 #### Primary keys
@@ -97,12 +102,12 @@ Make sure that init section is triggered once and before any work with database.
 This way stored will write user object in set of keys each for each field with `stored:"some_key"` type annotation
 ```Go
 user := User{1, "John", "john"}
-dbUser.Set(user)
+err := dbUser.Set(user).Err()
 ```
 If you have **autoincrement** option at your primary field you are able to Add new rows
 ```Go
 user := User{0, "John", "john"}
-dbUser.Add(&user) // after this user.ID will be 1
+err := dbUser.Add(&user).Err() // after this user.ID will be 1
 ```
 
 #### Get data by primary ID

@@ -23,6 +23,7 @@ type Field struct {
 	Value         reflect.Value
 	AutoIncrement bool
 	packed        *packed.Packed
+	UnStored      bool // means this field would not be stored inside main object
 }
 
 func (f *Field) init() {
@@ -35,17 +36,24 @@ type Tag struct {
 	Primary       bool
 	Mutable       bool
 	AutoIncrement bool
+	UnStored      bool // means this field doesn't stored inside main object data
 }
 
 // ParseTag converts object stored tag to sturct with options
 func (f *Field) ParseTag() *Tag {
 	tagStr := f.Type.Tag.Get("stored")
+	unstored := false
 	if tagStr == "" {
-		return nil
+		tagStr = f.Type.Tag.Get("unstored")
+		if tagStr == "" {
+			return nil
+		}
+		unstored = true
 	}
 	tagParts := strings.Split(tagStr, ",")
 	tag := Tag{
-		Name: tagParts[0],
+		Name:     tagParts[0],
+		UnStored: unstored,
 	}
 	if len(tagParts) > 1 {
 		for i := 1; i < len(tagParts); i++ {
@@ -87,6 +95,35 @@ func (f *Field) GetDefault() interface{} {
 	}
 }
 
+// isEmpty checks if element is empty
+func (f *Field) isEmpty(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	switch f.Kind { // slices and maps will be nil if not set
+	case reflect.String:
+		return "" == value
+	default:
+		return false
+	}
+}
+
+// BytesFromObject return bytes using full object instead of field value
+func (f *Field) BytesFromObject(objectValue interface{}) ([]byte, error) {
+	object := reflect.ValueOf(objectValue)
+	kind := object.Kind()
+	if kind == reflect.Ptr {
+		object = object.Elem()
+		kind = object.Kind()
+	}
+	if kind != reflect.Struct {
+		f.panic("object should be struct, not value")
+	}
+	fieldValue := object.Field(f.Num)
+	return f.ToBytes(fieldValue.Interface())
+}
+
+// ToBytes packs interface field value to bytes
 func (f *Field) ToBytes(val interface{}) ([]byte, error) {
 	return f.packed.Encode(val)
 

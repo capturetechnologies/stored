@@ -17,6 +17,13 @@ type Value struct {
 	err    error
 }
 
+func (v *Value) get() {
+	if v.fetch != nil {
+		v.fetch()
+		v.fetch = nil
+	}
+}
+
 func (v *Value) fromRaw(raw valueRaw) {
 	v.data = map[string]interface{}{}
 	for fieldName, binaryValue := range raw {
