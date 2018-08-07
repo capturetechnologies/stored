@@ -391,10 +391,31 @@ func (o *Object) IncField(objOrID interface{}, fieldName string, incVal interfac
 }
 
 // IncGetField increment field and return new value
-func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal interface{}) *Var {
+func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal interface{}) *Promise {
 	field := o.field(fieldName)
-	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
-	sub := o.Subspace(objOrID)
+
+	p := o.promise()
+	p.do(func() Chain {
+		sub := o.Subspace(objOrID)
+		incKey := sub.Pack(tuple.Tuple{field.Name})
+		val, err := field.ToBytes(incVal)
+		if err != nil {
+			return p.fail(err)
+		}
+		p.tr.Add(incKey, val)
+		fieldGet := p.tr.Get(incKey)
+		return func() Chain {
+			bytes, err := fieldGet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			p.setValueField(o, field, bytes)
+			return p.done(nil)
+		}
+	})
+	return p
+
+	/*sub := o.Subspace(objOrID)
 	res, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		incKey := sub.Pack(tuple.Tuple{field.Name})
 		val, err := field.ToBytes(incVal)
@@ -411,14 +432,41 @@ func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal inter
 	return &Var{
 		data: res,
 		err:  err,
-	}
+	}*/
 }
 
-func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback func(value interface{}) (interface{}, error)) error {
+// UpdateField updates object field via callback with old value
+func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback func(value interface{}) (interface{}, error)) *Promise {
 	field := o.field(fieldName)
 
-	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
-	sub := o.Subspace(objOrID)
+	p := o.promise()
+	p.do(func() Chain {
+		sub := o.Subspace(objOrID)
+		key := sub.Pack(tuple.Tuple{field.Name})
+		fieldGet := p.tr.Get(key)
+		return func() Chain {
+			val, err := fieldGet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if val == nil {
+				return p.fail(ErrNotFound)
+			}
+			newValue, err := callback(field.ToInterface(val))
+			if err != nil {
+				return p.fail(err)
+			}
+			bytesValue, err := field.ToBytes(newValue)
+			if err != nil {
+				return p.fail(err)
+			}
+			p.tr.Set(key, bytesValue)
+			return p.done(nil)
+		}
+	})
+	return p
+
+	/*sub := o.Subspace(objOrID)
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		key := sub.Pack(tuple.Tuple{field.Name})
 		val, err := tr.Get(key).Get()
@@ -439,18 +487,36 @@ func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback fun
 		tr.Set(key, bytesValue)
 		return
 	})
-	return err
+	return err*/
 }
 
 // SetField sets any value to requested field
-func (o *Object) SetField(objOrID interface{}, fieldName string, value interface{}) error {
+func (o *Object) SetField(objOrID interface{}, fieldName string, value interface{}) *Promise {
 	field := o.field(fieldName)
-	bytesValue, err := field.ToBytes(value)
-	if err != nil {
-		return err
-	}
-	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
-	sub := o.Subspace(objOrID)
+	p := o.promise()
+	p.do(func() Chain {
+		bytesValue, err := field.ToBytes(value)
+		if err != nil {
+			return p.fail(err)
+		}
+		sub := o.Subspace(objOrID)
+		key := sub.Pack(tuple.Tuple{field.Name})
+		fieldGet := p.tr.Get(key)
+		return func() Chain {
+			val, err := fieldGet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if val == nil {
+				return p.fail(ErrNotFound)
+			}
+			p.tr.Set(key, bytesValue)
+			return p.done(nil)
+		}
+	})
+	return p
+
+	/*sub := o.Subspace(objOrID)
 	_, err = o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		key := sub.Pack(tuple.Tuple{field.Name})
 		val, err := tr.Get(key).Get()
@@ -463,7 +529,7 @@ func (o *Object) SetField(objOrID interface{}, fieldName string, value interface
 		tr.Set(key, bytesValue)
 		return
 	})
-	return err
+	return err*/
 }
 
 // Add writes data even in primary key is empty, by setting it. Take a look at autoincrement tag
@@ -599,14 +665,45 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 }
 
 // GetBy fetch one row using index bye name or name of the index field
-func (o *Object) GetBy(indexKey string, data interface{}) *Value {
+func (o *Object) GetBy(indexKey string, data interface{}) *Promise {
 	index, ok := o.Indexes[indexKey]
 	if !ok {
 		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
 	}
 
+	p := o.promise()
+	p.doRead(func() Chain {
+		sub, err := index.getPrimary(p.readTr, data)
+		if err != nil {
+			return p.fail(err)
+		}
+
+		start, end := sub.FDBRangeKeys()
+		r := fdb.KeyRange{Begin: start, End: end}
+
+		rangeGet := p.readTr.GetRange(r, fdb.RangeOptions{
+			Mode: fdb.StreamingModeWantAll,
+		})
+		return func() Chain {
+			rows, err := rangeGet.GetSliceWithError()
+			if err != nil {
+				return p.fail(err)
+			}
+			if len(rows) == 0 {
+				return p.fail(ErrNotFound)
+			}
+			value := Value{
+				object: o,
+			}
+			value.FromKeyValue(sub, rows)
+			p.value = &value
+			return p.done(nil)
+		}
+	})
+	return p
+
 	//var keysub subspace.Subspace
-	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
+	/*resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
 		sub, err := index.getPrimary(tr, data)
 		if err != nil {
 			return nil, err
@@ -633,13 +730,7 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Value {
 	if err != nil {
 		return &Value{err: err}
 	}
-	return resp.(*Value)
-	/*rows := resp.([]fdb.KeyValue)
-	value := Value{
-		object: o,
-	}
-	value.FromKeyValue(keysub, rows)
-	return &value*/
+	return resp.(*Value)*/
 }
 
 // MultiGet fetch list of objects using primary id
@@ -683,11 +774,11 @@ func (o *Object) valueFromRange(sub subspace.Subspace, res fdb.RangeResult) (*Va
 // Get fetch object using primary id
 func (o *Object) Get(objOrID interface{}) *Promise {
 	p := o.promise()
-	p.do(func() Chain {
+	p.doRead(func() Chain {
 		sub := o.getPrimarySub(objOrID)
 
 		//needed := needObject(p.tr, sub)
-		needed := o.need(p.tr, sub)
+		needed := o.need(p.readTr, sub)
 
 		return func() Chain {
 			var err error

@@ -420,9 +420,33 @@ func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) e
 }
 
 // UpdateClientData writed new data from host object (host data could be )
-func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{}) error {
+func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientObj)
-	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	p := r.client.promise()
+	p.do(func() Chain {
+		dataGet := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		row, err := dataGet.Get()
+		if err != nil {
+			return p.fail(err)
+		}
+		if row == nil {
+			fmt.Println("Catched error")
+			return p.fail(ErrNotFound)
+		}
+
+		// getting data to store inside relation kv
+		clientVal, dataErr := r.getClientDataBytes(clientObj)
+		if dataErr != nil {
+			return p.fail(dataErr)
+		}
+		fmt.Println("[CLIENT DATA]", hostPrimary, clientPrimary, "=>", clientVal)
+
+		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		return p.done(nil)
+	})
+	return p
+
+	/*_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		row, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 		if err != nil {
 			return nil, err
@@ -442,13 +466,28 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
 		return
 	})
-	return err
+	return err*/
 }
 
 // Check return true if relation is set (false) if not set
-func (r *Relation) Check(hostOrID interface{}, clientOrID interface{}) (bool, error) {
+func (r *Relation) Check(hostOrID interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	val, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	p := r.host.promise()
+	p.doRead(func() Chain {
+		checkGet := p.readTr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		return func() Chain {
+			val, err := checkGet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if val == nil { // not exists increment here
+				return p.done(false)
+			}
+			return p.done(true)
+		}
+	})
+	return p
+	/*val, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 		if err != nil {
 			return false, err
@@ -458,7 +497,7 @@ func (r *Relation) Check(hostOrID interface{}, clientOrID interface{}) (bool, er
 		}
 		return true, nil
 	})
-	return val.(bool), err
+	return val.(bool), err*/
 }
 
 // GetClientDataIDs returns client data bytes
@@ -481,8 +520,8 @@ func (r *Relation) GetClientDataIDs(hostOrID interface{}, clientOrID interface{}
 func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
 	p := r.host.promise()
-	p.do(func() Chain {
-		fetching := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+	p.doRead(func() Chain {
+		fetching := p.readTr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
 		return func() Chain {
 			val, err := fetching.Get()
 			if err != nil {
@@ -510,8 +549,8 @@ func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *
 func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
 	p := r.host.promise()
-	p.do(func() Chain {
-		val, err := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
+	p.doRead(func() Chain {
+		val, err := p.readTr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
 		if err != nil {
 			return p.fail(err)
 		}
@@ -519,14 +558,7 @@ func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *Pr
 			return p.fail(ErrNotFound)
 		}
 		return func() Chain {
-			data := map[string]interface{}{}
-			valueInterface := r.hostDataField.ToInterface(val)
-			data[r.hostDataField.Name] = valueInterface
-			val := Value{
-				object: r.host,
-				data:   data,
-			}
-			p.value = &val
+			p.setValueField(r.host, r.hostDataField, val)
 			return p.done(nil)
 		}
 	})

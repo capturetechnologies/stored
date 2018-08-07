@@ -306,7 +306,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	}
 
 	var hasConnection bool
-	hasConnection, err = n2nUserChat.Check(user1, chat1)
+	hasConnection, err = n2nUserChat.Check(user1, chat1).Bool()
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return err
 	}
 
-	hasConnection, err = n2nUserChat.Check(user1, chat1)
+	hasConnection, err = n2nUserChat.Check(user1, chat1).Bool()
 	if err != nil {
 		return err
 	}
@@ -596,7 +596,7 @@ func testsEditField(dbUser *Object) error {
 		return errors.New("score has incorrent value after Increment")
 	}
 
-	dbUser.SetField(u, "score", 4)
+	dbUser.SetField(u, "score", 4).Err()
 	err = dbUser.Get(u.ID).Scan(&fetchedUser)
 	if err != nil {
 		return err
