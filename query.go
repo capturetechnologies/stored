@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -58,9 +59,15 @@ func (q *Query) List(values ...interface{}) *Query {
 		q.primary = append(q.primary, v)
 	}
 
-	maxFields := len(q.object.primaryFields)
-	if len(q.primary) >= maxFields {
-		q.object.panic("List should have less than " + strconv.Itoa(maxFields) + " params (number of primary keys)")
+	if q.index == nil {
+		maxFields := len(q.object.primaryFields)
+		if len(q.primary) >= maxFields {
+			q.object.panic("List should have less than " + strconv.Itoa(maxFields) + " params (number of primary keys)")
+		}
+	} else {
+		if len(q.primary) != 1 {
+			q.object.panic("List should have 1 property since indexes support only 1 value")
+		}
 	}
 	return q
 }
@@ -73,7 +80,12 @@ func (q *Query) From(values ...interface{}) *Query {
 	}
 	q.from = tuple.Tuple{}
 	for _, v := range values {
-		q.from = append(q.from, v)
+		switch enc := v.(type) {
+		case byte:
+			q.from = append(q.from, []byte{enc})
+		default:
+			q.from = append(q.from, v)
+		}
 	}
 	return q
 }
@@ -88,7 +100,6 @@ func (q *Query) ScanAll(slicePointer interface{}) error {
 
 // execute the query
 func (q *Query) execute() interface{} {
-	q.next.started = true
 	keyLen := len(q.object.primaryFields)
 	resp, err := q.object.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
 		if q.index != nil { // select using index
@@ -120,8 +131,15 @@ func (q *Query) execute() interface{} {
 				start = sub.Pack(q.from)
 			}
 		}
+
 		r := fdb.KeyRange{Begin: start, End: end}
-		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: q.object.getKeyLimit(q.limit), Reverse: q.reverse})
+
+		limit := q.object.getKeyLimit(q.limit)
+		if q.next.started {
+			limit++
+		}
+
+		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: limit, Reverse: q.reverse})
 		iterator := rangeResult.Iterator()
 		elem := valueRaw{}
 		res := []valueRaw{}
@@ -142,8 +160,6 @@ func (q *Query) execute() interface{} {
 			}
 			primaryTuple := fullTuple[:keyLen]
 
-			q.next.from = primaryTuple // set up nextFrom
-
 			if lastTuple != nil && !reflect.DeepEqual(primaryTuple, lastTuple) {
 				// push to items here
 				res = append(res, elem)
@@ -162,12 +178,19 @@ func (q *Query) execute() interface{} {
 			lastTuple = primaryTuple
 			rowsNum++
 		}
-		if rowsNum != 0 {
+		if rowsNum != 0 && (q.limit != 0 && len(res) < q.limit) {
 			res = append(res, elem)
 		}
 		if len(res) == 0 {
 			return &Slice{values: []*Value{}}, nil
 			//return nil, ErrNotFound
+		}
+
+		if !reflect.DeepEqual(q.from, lastTuple) {
+			q.next.from = lastTuple
+			//q.next.from = IncrementTuple(lastTuple)
+		} else {
+			q.next.from = nil
 		}
 
 		return q.object.wrapObjectList(res)
@@ -182,10 +205,15 @@ func (q *Query) execute() interface{} {
 func (q *Query) Next() bool {
 	if q.next.started {
 		if q.next.from != nil {
+			fmt.Println("next true", q.next.from)
 			q.from = q.next.from
+			q.next.from = nil
 			return true
 		}
+		fmt.Println("next false")
 		return false
 	}
+	fmt.Println("next True")
+	q.next.started = true // prevent endless circle if no queries presented
 	return true
 }

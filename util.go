@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 // ErrNotFound is an error returned when no rows was found
@@ -78,6 +79,40 @@ func ToInt32(b []byte) int32 {
 // ToInt converts byte array to int64
 func ToInt(b []byte) int {
 	return int(binary.LittleEndian.Uint32(b))
+}
+
+func IncrementTuple(t tuple.Tuple) tuple.Tuple {
+	index := len(t) - 1
+	if index < 0 {
+		return t
+	}
+	switch k := t[index].(type) {
+	case int:
+		t[index] = k + 1
+	case int16:
+		t[index] = k + 1
+	case int8:
+		t[index] = k + 1
+	case int32:
+		t[index] = k + 1
+	case int64:
+		t[index] = k + 1
+	case uint:
+		t[index] = k + 1
+	case uint8:
+		t[index] = k + 1
+	case uint16:
+		t[index] = k + 1
+	case uint32:
+		t[index] = k + 1
+	case uint64:
+		t[index] = k + 1
+	case []byte:
+		t[index] = append(k, '\x01')
+	case string:
+		t[index] = k + "\x01"
+	}
+	return t
 }
 
 // Nan means no data presented

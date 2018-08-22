@@ -281,6 +281,7 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		tr.Set(sub.Pack(tuple.Tuple{k}), value)
 	}
 	for _, index := range o.Indexes {
+		//fmt.Println("WRITE index", primaryTuple, input)
 		err := index.Write(tr, primaryTuple, input)
 		if err != nil {
 			return err
@@ -293,6 +294,47 @@ func (o *Object) promise() *Promise {
 	return &Promise{
 		db: o.db,
 	}
+}
+
+// Update writes data, only if row already exist
+func (o *Object) Update(data interface{}) *Promise {
+	input := StructAny(data)
+	p := o.promise()
+	p.do(func() Chain {
+		primaryTuple := input.Primary(o)
+
+		// delete all indexes data
+		sub := o.sub(primaryTuple)
+		needed := o.need(p.tr, sub)
+		//res := needObject(p.tr, sub)
+		return func() Chain {
+			value, err := needed.fetch()
+			if err == ErrNotFound {
+				return p.fail(ErrNotFound)
+			}
+			if err != nil {
+				return p.fail(err)
+			}
+			err = value.Err()
+			if err != nil {
+				return p.fail(err)
+			}
+			object := StructAny(value.Interface())
+
+			// remove indexes
+			for _, index := range o.Indexes {
+				index.Delete(p.tr, object)
+			}
+
+			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
+			if err != nil {
+				return p.fail(err)
+			}
+			return p.done(nil)
+		}
+	})
+
+	return p
 }
 
 // Set writes data, would return error if primary key is empty
@@ -333,37 +375,6 @@ func (o *Object) Set(data interface{}) *Promise {
 	})
 
 	return p
-
-	/*_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		primaryTuple := input.Primary(o)
-		sub := o.primary.Sub(primaryTuple...)
-
-		// delete all indexes data
-		res := needObject(tr, sub)
-		value, err := o.valueFromRange(sub, res)
-		if err != ErrNotFound {
-			if err != nil {
-				return nil, err
-			}
-			err = value.Err()
-			if err != nil {
-				return nil, err
-			}
-			object := StructAny(value.Interface())
-
-			// remove indexes
-			for _, index := range o.Indexes {
-				index.Delete(tr, object)
-			}
-		}
-
-		e = o.doWrite(tr, sub, primaryTuple, input, true)
-		return
-	})
-	if err != nil {
-		return err
-	}
-	return nil*/
 }
 
 // Subspace return subspace using object or interface

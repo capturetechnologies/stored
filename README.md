@@ -138,8 +138,11 @@ There are cases when inside the relation you want to store some data, for exampl
 * in user-chat connection you want to store last *message_id* user read
 * in chat-user connection you want to store user join date in this chat
 ```Go
-dbUserChat.SetData(user, chat, stored.Int64(lastMessageID), stored.Now())
+dbUserChat.ClientData("last_message") // last_message is the field at the client (Chat) object
+dbUserChat.HostData("join_date") // last_message is the field at the client (Chat) object
 ```
+Data object could be any type, even the struct.
+But complicated struct object could got
 
 #### Get list of objects using Relation
 Say you have **N2N** relation between users and chats.

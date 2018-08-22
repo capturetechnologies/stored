@@ -3,6 +3,7 @@ package stored
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -45,7 +46,10 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 			}
 		}
 	} else {
+
+		// PROBLEM IS HERE
 		key := append(tuple.Tuple{indexValue}, primaryTuple...)
+		fmt.Println("setting index properly", primaryTuple, "packed", i.dir.Pack(key))
 		tr.Set(i.dir.Pack(key), []byte{})
 	}
 	return nil
@@ -68,10 +72,21 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		i.object.panic("index is unique (lists not supported)")
 	}
 	sub := i.dir.Sub(q.primary...)
+	fmt.Println("selecting", q.primary, "->", sub)
 	start, end := sub.FDBRangeKeys()
 	if q.from != nil {
-		start = sub.Sub(q.from...)
+		//start = sub.Sub(q.from...)
+		if q.reverse {
+			end = sub.Pack(q.from)
+		} else {
+			start = sub.Pack(q.from)
+		}
 	}
+	if q.reverse {
+		fmt.Println("reverse")
+	}
+
+	fmt.Println("start", start, "end", end)
 	r := fdb.KeyRange{Begin: start, End: end}
 	rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: q.limit, Reverse: q.reverse})
 	iterator := rangeResult.Iterator()
@@ -80,16 +95,20 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 	values := []*needObject{}
 	for iterator.Advance() {
 		kv, err := iterator.Get()
+		fmt.Println("advanced", kv)
 		if err != nil {
+			fmt.Println("FAIL222")
 			return nil, err
 		}
 		fullTuple, err := sub.Unpack(kv.Key)
 		if err != nil {
+			fmt.Println("FAIL111")
 			return nil, err
 		}
 		if len(fullTuple)-primaryLen < 0 {
 			return nil, errors.New("invalid data: key too short")
 		}
+		fmt.Println("row enumered", fullTuple)
 		key := fullTuple[len(fullTuple)-primaryLen:]
 
 		values = append(values, i.object.need(tr, i.object.sub(key)))
