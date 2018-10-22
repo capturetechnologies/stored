@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -153,7 +154,7 @@ func (o *Object) wrapRange(needed []*needObject) *Slice {
 	return &slice
 }*/
 
-func (o *Object) addIndex(key string, unique bool) {
+func (o *Object) addIndex(key string) *Index {
 	field, ok := o.fields[key]
 	if !ok {
 		panic("Object " + o.name + " has no key «" + key + "» could not set index")
@@ -166,13 +167,14 @@ func (o *Object) addIndex(key string, unique bool) {
 	if err != nil {
 		panic(err)
 	}
-	o.Indexes[key] = &Index{
+	index := Index{
 		Name:   key,
 		field:  field,
 		object: o,
 		dir:    indexSubspace,
-		Unique: unique,
 	}
+	o.Indexes[key] = &index
+	return &index
 }
 
 func (o *Object) panic(text string) {
@@ -247,6 +249,32 @@ func (o *Object) Primary(names ...string) *Object {
 	return o
 }
 
+// IDDate is unique id generated using date as first part, this approach is usefull
+// if date index necessary too
+// field type should be int64
+func (o *Object) IDDate(fieldName string) *Object {
+	field, ok := o.fields[fieldName]
+	if !ok {
+		panic("Object " + o.name + " has no key «" + fieldName + "» could not set uuid")
+	}
+	fmt.Println("TEST", GenIDDate)
+	field.SetID(GenIDDate)
+	return o
+}
+
+// IDRandom is unique id generated using random number, this approach is usefull
+// if you whant randomly distribute objects, and you do not whant to unveil data object
+func (o *Object) IDRandom(fieldName string) *Object {
+	field, ok := o.fields[fieldName]
+	if !ok {
+		panic("Object " + o.name + " has no key «" + fieldName + "» could not set uuid")
+	}
+	field.SetID(GenIDRandom)
+	return o
+}
+
+// AutoIncrement make defined field autoincremented before adding new objects
+//
 func (o *Object) AutoIncrement(name string) *Object {
 	field, ok := o.fields[name]
 	if !ok {
@@ -256,14 +284,29 @@ func (o *Object) AutoIncrement(name string) *Object {
 	return o
 }
 
+// Unique index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
 func (o *Object) Unique(key string) *Object {
-	o.addIndex(key, true)
+	index := o.addIndex(key)
+	index.Unique = true
+
 	return o
 }
 
-// Index add an index
+// Index add an simple index for specific key
 func (o *Object) Index(key string) *Object {
-	o.addIndex(key, false)
+	o.addIndex(key)
+	return o
+}
+
+// IndexGeo will add and geohash based index to allow geographicly search objects
+func (o *Object) IndexGeo(latKey string, longKey string) *Object {
+	index := o.addIndex(latKey)
+	index.Geo = true
+	field, ok := o.fields[longKey]
+	if !ok {
+		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
+	}
+	index.secondary = field
 	return o
 }
 
@@ -296,6 +339,12 @@ func (o *Object) promise() *Promise {
 	}
 }
 
+func (o *Object) promiseInt64() *Promise {
+	return &Promise{
+		db: o.db,
+	}
+}
+
 // Update writes data, only if row already exist
 func (o *Object) Update(data interface{}) *Promise {
 	input := StructAny(data)
@@ -323,7 +372,7 @@ func (o *Object) Update(data interface{}) *Promise {
 
 			// remove indexes
 			for _, index := range o.Indexes {
-				index.Delete(p.tr, object)
+				index.Delete(p.tr, primaryTuple, object)
 			}
 
 			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
@@ -358,11 +407,11 @@ func (o *Object) Set(data interface{}) *Promise {
 				if err != nil {
 					return p.fail(err)
 				}
-				object := StructAny(value.Interface())
+				oldObject := StructAny(value.Interface())
 
 				// remove indexes
 				for _, index := range o.Indexes {
-					index.Delete(p.tr, object)
+					index.Delete(p.tr, primaryTuple, oldObject)
 				}
 			}
 
@@ -554,6 +603,8 @@ func (o *Object) Add(data interface{}) *Promise {
 				p.tr.Add(incKey, field.packed.Plus())
 				autoIncrementValue := p.tr.Get(incKey).MustGet()
 				input.Set(field, autoIncrementValue)
+			} else if field.GenID != 0 {
+				input.Set(field, field.GenerateID())
 			}
 		}
 
@@ -578,36 +629,6 @@ func (o *Object) Add(data interface{}) *Promise {
 		}
 	})
 	return p
-
-	/*_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		for _, field := range o.fields {
-			if field.AutoIncrement {
-				incKey := o.miscDir.Pack(tuple.Tuple{"ai", field.Name})
-				tr.Add(incKey, field.packed.Plus())
-				autoIncrementValue := tr.Get(incKey).MustGet()
-				input.Set(field, autoIncrementValue)
-			}
-		}
-
-		primaryTuple := input.Primary(o)
-		sub := o.primary.Sub(primaryTuple...)
-
-		isSet := tr.GetKey(fdb.FirstGreaterThan(sub))
-		firstKey, err := isSet.Get()
-		if err != nil {
-			return nil, err
-		}
-		if sub.Contains(firstKey) {
-			return nil, ErrAlreadyExist
-		}
-
-		e = o.doWrite(tr, sub, primaryTuple, input, false)
-		return
-	})
-	if err != nil {
-		return err
-	}
-	return nil*/
 }
 
 // Delete removes data
@@ -638,41 +659,13 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 
 			// remove indexes
 			for _, index := range o.Indexes {
-				index.Delete(p.tr, object)
+				index.Delete(p.tr, primaryTuple, object)
 			}
 
 			return p.ok()
 		}
 	})
 	return p
-
-	/*_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		res := needObject(tr, sub)
-		value, err := o.valueFromRange(sub, res)
-		if err != nil {
-			return nil, err
-		}
-		err = value.Err()
-		if err != nil {
-			return nil, err
-		}
-		object := StructAny(value.Interface())
-
-		// remove object key
-		start, end := sub.FDBRangeKeys()
-		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
-
-		// remove indexes
-		for _, index := range o.Indexes {
-			index.Delete(tr, object)
-		}
-
-		return
-	})
-	if err != nil {
-		return err
-	}
-	return nil*/
 }
 
 // GetBy fetch one row using index bye name or name of the index field
@@ -712,42 +705,13 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Promise {
 		}
 	})
 	return p
-
-	//var keysub subspace.Subspace
-	/*resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		sub, err := index.getPrimary(tr, data)
-		if err != nil {
-			return nil, err
-		}
-
-		start, end := sub.FDBRangeKeys()
-		r := fdb.KeyRange{Begin: start, End: end}
-
-		rows, err := tr.GetRange(r, fdb.RangeOptions{
-			Mode: fdb.StreamingModeWantAll,
-		}).GetSliceWithError()
-		if err != nil {
-			return nil, err
-		}
-		if len(rows) == 0 {
-			return nil, ErrNotFound
-		}
-		value := Value{
-			object: o,
-		}
-		value.FromKeyValue(sub, rows)
-		return &value, nil
-	})
-	if err != nil {
-		return &Value{err: err}
-	}
-	return resp.(*Value)*/
 }
 
 // MultiGet fetch list of objects using primary id
 func (o *Object) MultiGet(data interface{}) *Slice {
 	dataKeys := o.sliceToKeys(data)
 	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
+		tr = tr.Snapshot()
 		needed := make([]*needObject, len(dataKeys))
 		//needed := []*needObject{}
 		for k, v := range dataKeys { // iterate each key
@@ -802,16 +766,6 @@ func (o *Object) Get(objOrID interface{}) *Promise {
 		}
 	})
 	return p
-
-	/*resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		needed := o.need(tr, o.sub(o.getPrimaryTuple(objOrID)))
-		return needed.fetch()
-	})
-	if err != nil {
-		return &Value{err: err}
-	}
-	value := resp.(*Value)
-	return value*/
 }
 
 func (o *Object) getKeyLimit(limit int) int {
@@ -979,4 +933,31 @@ func (o *Object) ListAll() *Query {
 func (o *Object) Use(index string) *Query {
 	query := Query{object: o}
 	return query.Use(index)
+}
+
+// Reindex will go around all data and delete add every row
+func (o *Object) Reindex() {
+	query := o.ListAll().Limit(100)
+	num := 0
+	stop := false
+	for query.Next() {
+		query.Slice().Each(func(item interface{}) {
+			num++
+			if stop {
+				return
+			}
+			fmt.Println("REINDEX MSG", num)
+			err := o.Delete(item).Err()
+			if err != nil {
+				fmt.Println("DELETEED, err", err)
+				stop = true
+			} else {
+				err = o.Set(item).Err()
+				if err != nil {
+					fmt.Println("PUSHED BACK, err", err)
+					stop = true
+				}
+			}
+		})
+	}
 }

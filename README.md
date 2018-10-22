@@ -17,9 +17,9 @@ func init() { // init database
   }
   db := cluster.Directory("test")
   dbUser = db.Object("user", User{})
-  dbUser.Primary("id").AutoIncrement("id").Unique("login")
+  dbUser.Primary("id").UUID("id").Unique("login")
   dbChat = db.Object("chat", Chat{})
-  dbChat.Primary("id").AutoIncrement("id")
+  dbChat.Primary("id").UUID("id")
   dbUserChat = dbUser.N2N(dbChat)
 }
 ```
@@ -68,12 +68,38 @@ dbUser.Primary("chat_id", "message_id")
 ```
 In this case the combination of values will be the primary key. Fields order should not change.
 
+#### IDDate
+IDDate is most suitable way to generate unique identifiers for the most cases. IDDate will generate
+int64 identifier based on current timestamp plus some random seed. This way ID could serve double purpose
+storing ID plus storing timestamp of adding the object.
+Since int64 is not precise enough to completely illuminate collisions, if field is in primary index at the
+moment of Add STORED will check that no other key with such ID presented.
+
+```Go
+dbUser.IDDate("id") // field id should be int64 or uint64
+```
+
+#### IDRandom
+You should use IDRandom when you do not want your ID to unveil timestamp of object creation.
+Since int64 is not precise enough to completely illuminate collisions, if field is in primary index at the
+moment of Add STORED will check that no other key with such ID presented.
+
+```Go
+dbUser.IDRandom("id") // field id should be int64 or uint64
+```
+
 #### AutoIncrement
+Autoincrement is an easy way to provide automatically incremented values to an field.
+At the moment of each Add new object will be written with incremented counter, 1,2,3 etc..
+
+But autoincrement should be used with care, since incrementing of a counter creates collision
+of transactions you should not use this options when there are more than 100 Adds per second
+
 Any key could be setup as autoincremented.
 ```Go
 dbUser.AutoIncrement("id")
 ```
-this way the value of this field will be set automaticly if **Add** `dbUser.Add(&ubser)` method triggered.
+this way the value of this field will be set automaticly if **Add** `dbUser.Add(&user)` method triggered.
 
 #### Indexes
 **Unique** creates unique index. You could fetch document directly using this index.

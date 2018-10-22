@@ -26,11 +26,10 @@ func (m *MultiChain) init() {
 
 func (m *MultiChain) execute() {
 	m.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
-		//results := map[string]fdb.RangeResult{}
+		tr = tr.Snapshot()
 		results := map[string]*needObject{}
 		for k, needObj := range m.needed {
 			results[k] = needObj.object.need(tr, needObj.subspace)
-			//results[k] = NeedObject(tr, needObj.subspace)
 		}
 		for k, needObj := range m.needed {
 			value, err := results[k].fetch()
@@ -40,14 +39,6 @@ func (m *MultiChain) execute() {
 				needObj.res.object = value.object
 				needObj.res.data = value.data
 			}
-
-			/*res, err := needObj.object.valueFromRange(needObj.subspace, results[k])
-			if err != nil {
-				needObj.res.err = err
-			} else {
-				needObj.res.object = res.object
-				needObj.res.data = res.data
-			}*/
 		}
 		return nil, nil
 	})

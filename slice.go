@@ -49,6 +49,13 @@ func (s *Slice) ScanAll(slicePointer interface{}) (e error) {
 	return
 }
 
+// Each will go through all elements in slice
+func (s *Slice) Each(cb func(item interface{})) {
+	for _, val := range s.values {
+		cb(val.Interface())
+	}
+}
+
 // GetIndexData return indexData slice of byte array
 /*func (s *Slice) GetIndexData() [][]byte {
 	return s.indexData

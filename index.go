@@ -13,11 +13,13 @@ import (
 
 // Index represend all indexes sored has
 type Index struct {
-	Name   string
-	Unique bool
-	dir    directory.DirectorySubspace
-	object *Object
-	field  *Field
+	Name      string
+	Unique    bool
+	Geo       bool
+	dir       directory.DirectorySubspace
+	object    *Object
+	field     *Field
+	secondary *Field
 }
 
 // Write writes index related keys
@@ -42,27 +44,32 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 			//previous := i.object.GetPrimaryField().ToInterface(previousBytes)
 			if !bytes.Equal(primaryTuple.Pack(), previousBytes) {
 				//if previousTuple != primaryTuple {
-				return errors.New("Object " + i.object.name + " with index (" + i.Name + ") already set")
+				return ErrAlreadyExist
+				//return errors.New("Object " + i.object.name + " with index (" + i.Name + ") already set")
 			}
 		}
 	} else {
 
 		// PROBLEM IS HERE
 		key := append(tuple.Tuple{indexValue}, primaryTuple...)
-		fmt.Println("setting index properly", primaryTuple, "packed", i.dir.Pack(key))
-		tr.Set(i.dir.Pack(key), []byte{})
+		keyPacked := i.dir.Pack(key)
+		fmt.Println("setting index ", i.Name, " properly", primaryTuple, "packed", keyPacked)
+		tr.Set(keyPacked, []byte{})
 	}
 	return nil
 }
 
 // Delete removes selected index
-func (i *Index) Delete(tr fdb.Transaction, input *Struct) {
-	indexValue := input.Get(i.field)
+func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, oldObject *Struct) {
+	indexValue := oldObject.Get(i.field)
 	sub := i.dir.Sub(indexValue)
 	if i.Unique {
 		tr.Clear(sub)
 	} else {
+		// Add primary here
+		sub = sub.Sub(primaryTuple...)
 		start, end := sub.FDBRangeKeys()
+		fmt.Println("clear index: start", start, "end", end)
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 	}
 }
@@ -94,6 +101,7 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 	primaryLen := len(i.object.primaryFields)
 	values := []*needObject{}
 	for iterator.Advance() {
+		fmt.Println("in")
 		kv, err := iterator.Get()
 		fmt.Println("advanced", kv)
 		if err != nil {
@@ -112,6 +120,7 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		key := fullTuple[len(fullTuple)-primaryLen:]
 
 		values = append(values, i.object.need(tr, i.object.sub(key)))
+		fmt.Println("out")
 	}
 	return values, nil
 }

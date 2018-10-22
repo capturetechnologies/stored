@@ -65,7 +65,7 @@ func (p *Promise) execute() (interface{}, error) {
 func (p *Promise) transact() (interface{}, error) {
 	if p.readOnly {
 		return p.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
-			p.readTr = tr
+			p.readTr = tr.Snapshot()
 			return p.execute()
 		})
 	}

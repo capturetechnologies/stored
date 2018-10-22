@@ -49,16 +49,18 @@ func vInt(writer io.Writer, v int) error {
 	return err
 }
 
+// Encode will pack passed data to byte array
 func (p *Packed) Encode(data interface{}) ([]byte, error) {
 	writer := &bytes.Buffer{}
-	err := p.doEncode(writer, data)
+	err := p.doEncode(writer, data, 0)
 	if err != nil {
 		return nil, err
 	}
 	return writer.Bytes(), nil
 }
 
-func (p *Packed) doEncode(writer io.Writer, data interface{}) (err error) {
+func (p *Packed) doEncode(writer io.Writer, data interface{}, level int) (err error) {
+	level++
 	switch ref := data.(type) {
 	case encoding.BinaryMarshaler:
 		buf, err := ref.MarshalBinary()
@@ -75,13 +77,30 @@ func (p *Packed) doEncode(writer io.Writer, data interface{}) (err error) {
 		}
 		_, err = writer.Write(ref)
 	default:
-		value := reflect.Indirect(reflect.ValueOf(data))
+		value := reflect.ValueOf(data)
+
 		t := value.Type()
-		switch t.Kind() {
+		kind := t.Kind()
+		//fmt.Println("VALUE TYE", t, "KIND", kind)
+		if kind == reflect.Ptr {
+			if value.IsNil() {
+				if level == 1 {
+					return
+				} else {
+					panic("nil inside struct pack")
+				}
+			}
+			value = reflect.Indirect(value)
+			t = value.Type()
+			kind = t.Kind()
+			//fmt.Println("[ fixed ]  VALUE TYE", t, "KIND", kind)
+		}
+
+		switch kind {
 		case reflect.Array:
 			length := t.Len()
 			for i := 0; i < length; i++ {
-				if err = p.doEncode(writer, value.Index(i).Addr().Interface()); err != nil {
+				if err = p.doEncode(writer, value.Index(i).Addr().Interface(), level); err != nil {
 					return
 				}
 			}
@@ -92,7 +111,7 @@ func (p *Packed) doEncode(writer io.Writer, data interface{}) (err error) {
 				return
 			}
 			for i := 0; i < l; i++ {
-				if err = p.doEncode(writer, value.Index(i).Addr().Interface()); err != nil {
+				if err = p.doEncode(writer, value.Index(i).Addr().Interface(), level); err != nil {
 					return
 				}
 			}
@@ -101,7 +120,7 @@ func (p *Packed) doEncode(writer io.Writer, data interface{}) (err error) {
 			l := value.NumField()
 			for i := 0; i < l; i++ {
 				if v := value.Field(i); t.Field(i).Name != "_" {
-					if err = p.doEncode(writer, v.Interface()); err != nil {
+					if err = p.doEncode(writer, v.Interface(), level); err != nil {
 						return
 					}
 				}
@@ -114,10 +133,10 @@ func (p *Packed) doEncode(writer io.Writer, data interface{}) (err error) {
 			}
 			for _, key := range value.MapKeys() {
 				value := value.MapIndex(key)
-				if err = p.doEncode(writer, key.Interface()); err != nil {
+				if err = p.doEncode(writer, key.Interface(), level); err != nil {
 					return err
 				}
-				if err = p.doEncode(writer, value.Interface()); err != nil {
+				if err = p.doEncode(writer, value.Interface(), level); err != nil {
 					return err
 				}
 			}
@@ -166,6 +185,7 @@ func (p *Packed) doDecode(reader *byteReader, value reflect.Value) (err error) {
 	}*/
 
 	if !value.CanAddr() {
+		fmt.Println("this pointer could not decoded")
 		return errors.New("this pointer could not decoded")
 	}
 	t := value.Type()
@@ -267,11 +287,21 @@ func (p *Packed) DecodeToValue(data []byte, value reflect.Value) error {
 	return p.doDecode(reader, value)
 }
 
+// DecodeToInterface will decode field to interface
 func (p *Packed) DecodeToInterface(data []byte) interface{} {
-	//value := p.Value
-	value := reflect.New(p.Value.Type())
+	t := p.Value.Type()
+	var isPointer bool
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+		isPointer = true
+	}
+	value := reflect.New(t)
 	value = reflect.Indirect(value)
 	p.DecodeToValue(data, value)
+
+	if isPointer {
+		value = value.Addr()
+	}
 	return value.Interface()
 }
 
@@ -293,7 +323,6 @@ func (p *Packed) Plus() []byte {
 		return []byte{'\x01'}
 	}
 	panic("type not supported for plus operation")
-	return nil
 }
 
 // Minus returns -1 in byte representation of packed type
@@ -309,5 +338,4 @@ func (p *Packed) Minus() []byte {
 		return []byte{'\xff'}
 	}
 	panic("type not supported for minus operation")
-	return nil
 }

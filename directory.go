@@ -1,8 +1,6 @@
 package stored
 
 import (
-	"fmt"
-
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
 )
@@ -30,19 +28,11 @@ func (d *Directory) Object(name string, schemaObj interface{}) (ret *Object) {
 // Clear removes all content inside directory
 func (d *Directory) Clear() error {
 	_, err := d.Cluster.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		//ret, e = d.Subspace.Remove(tr, []string{})
-		if e != nil {
-			fmt.Println("remove directory fail", ret, e)
-		}
 		for _, obj := range d.objects {
 			err := obj.Clear()
 			if err != nil {
 				return nil, err
 			}
-			/*ret, e = d.Subspace.Remove(tr, []string{path})
-			if e != nil {
-				fmt.Println("remove directory fail", ret, e)
-			}*/
 		}
 		return
 	})
@@ -52,7 +42,7 @@ func (d *Directory) Clear() error {
 	return nil
 }
 
-// Creates reference object for multi requests
+// Multi creates reference object for multi requests
 func (d *Directory) Multi() *MultiChain {
 	mc := MultiChain{db: d.Cluster.db}
 	mc.init()

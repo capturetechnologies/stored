@@ -1,7 +1,6 @@
 package stored
 
 import (
-	"fmt"
 	"reflect"
 	"strconv"
 
@@ -98,10 +97,17 @@ func (q *Query) ScanAll(slicePointer interface{}) error {
 	return slice.ScanAll(slicePointer)
 }
 
+// Slice will return slice object
+func (q *Query) Slice() *Slice {
+	sliceI := q.execute()
+	return sliceI.(*Slice)
+}
+
 // execute the query
 func (q *Query) execute() interface{} {
 	keyLen := len(q.object.primaryFields)
 	resp, err := q.object.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
+		tr = tr.Snapshot()
 		if q.index != nil { // select using index
 			values, err := q.index.getList(tr, q)
 			if err != nil {
@@ -178,7 +184,7 @@ func (q *Query) execute() interface{} {
 			lastTuple = primaryTuple
 			rowsNum++
 		}
-		if rowsNum != 0 && (q.limit != 0 && len(res) < q.limit) {
+		if rowsNum != 0 && (q.limit == 0 || len(res) < q.limit) {
 			res = append(res, elem)
 		}
 		if len(res) == 0 {
@@ -205,15 +211,12 @@ func (q *Query) execute() interface{} {
 func (q *Query) Next() bool {
 	if q.next.started {
 		if q.next.from != nil {
-			fmt.Println("next true", q.next.from)
 			q.from = q.next.from
 			q.next.from = nil
 			return true
 		}
-		fmt.Println("next false")
 		return false
 	}
-	fmt.Println("next True")
 	q.next.started = true // prevent endless circle if no queries presented
 	return true
 }

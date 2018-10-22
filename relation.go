@@ -42,9 +42,13 @@ func (r *Relation) init(kind int, host *Object, client *Object) {
 	if err != nil {
 		panic(err)
 	}
-	r.clientDir, err = r.infoDir.CreateOrOpen(db, []string{"client"}, nil)
-	if err != nil {
-		panic(err)
+	if host == client { // if same object use same directory
+		r.clientDir = r.hostDir
+	} else {
+		r.clientDir, err = r.infoDir.CreateOrOpen(db, []string{"client"}, nil)
+		if err != nil {
+			panic(err)
+		}
 	}
 	host.Relations = append(host.Relations, r)
 }
@@ -194,43 +198,48 @@ func (r *Relation) Delete(hostOrID interface{}, clientOrID interface{}) error {
 }
 
 // GetHostsCount fetches counter
-func (r *Relation) GetHostsCount(clientOrID interface{}) (int64, error) {
+func (r *Relation) GetHostsCount(clientOrID interface{}) *Promise {
 	if !r.counter {
 		r.panic("counter is off, use rel.Counter(true)")
 	}
-	//hostPrimary := r.host.GetPrimaryField().fromAnyInterface(hostOrID)
-	clientPrimary := r.host.getPrimaryTuple(clientOrID)
-	row, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := tr.Get(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary)).Get()
+
+	p := r.host.promiseInt64()
+	p.doRead(func() Chain {
+		clientPrimary := r.host.getPrimaryTuple(clientOrID)
+		//row, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		row, err := p.readTr.Get(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary)).Get()
 		if row == nil {
-			return nil, ErrNotFound
+			return p.fail(ErrNotFound)
+			//return nil, ErrNotFound
 		}
-		return ToInt64(row), err
+		if err != nil {
+			return p.fail(err)
+		}
+		return p.done(ToInt64(row))
 	})
-	if err != nil {
-		return int64(0), err
-	}
-	return row.(int64), nil
+	return p
 }
 
 // GetClientsCount fetches counter
-func (r *Relation) GetClientsCount(hostOrID interface{}) (int64, error) {
+func (r *Relation) GetClientsCount(hostOrID interface{}) *Promise {
 	if !r.counter {
 		r.panic("counter is off, use rel.Counter(true)")
 	}
-	//clientPrimary := r.client.GetPrimaryField().fromAnyInterface(clientOrID)
-	hostPrimary := r.client.getPrimaryTuple(hostOrID)
-	row, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := tr.Get(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary)).Get()
+	p := r.host.promiseInt64()
+	p.doRead(func() Chain {
+		hostPrimary := r.client.getPrimaryTuple(hostOrID)
+		//row, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		row, err := p.readTr.Get(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary)).Get()
 		if row == nil {
-			return nil, ErrNotFound
+			return p.fail(ErrNotFound)
+			//return nil, ErrNotFound
 		}
-		return ToInt64(row), err
+		if err != nil {
+			return p.fail(err)
+		}
+		return p.done(ToInt64(row))
 	})
-	if err != nil {
-		return int64(0), err
-	}
-	return row.(int64), err
+	return p
 }
 
 // GetClients fetch slice of client objects using host
@@ -341,9 +350,6 @@ func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) 
 
 // GetHosts fetch slice of client objects using host
 func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *Slice {
-	//dataKeys := []subspace.Subspace{}
-	//primary := r.client.GetPrimaryField()
-
 	hostPrimary := r.client.getPrimaryTuple(objOrID)
 	key := r.clientDir.Sub(hostPrimary...)
 	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
@@ -396,27 +402,30 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 }
 
 // UpdateHostData writed new data from host object (host data could be )
-func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) error {
+func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostObj, clientOrID)
-	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
+	p := r.client.promise()
+	p.do(func() Chain {
+		//_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		dataGet := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
+		row, err := dataGet.Get()
 		if err != nil {
-			return nil, err
+			return p.fail(err)
 		}
 		if row == nil {
-			return nil, ErrNotFound
+			return p.fail(ErrNotFound)
 		}
 
 		// getting data to store inside relation kv
 		hostVal, dataErr := r.getHostDataBytes(hostObj)
 		if dataErr != nil {
-			return nil, dataErr
+			return p.fail(dataErr)
 		}
 
-		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
-		return
+		p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+		return p.done(nil)
 	})
-	return err
+	return p
 }
 
 // UpdateClientData writed new data from host object (host data could be )
@@ -439,7 +448,7 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 		if dataErr != nil {
 			return p.fail(dataErr)
 		}
-		fmt.Println("[CLIENT DATA]", hostPrimary, clientPrimary, "=>", clientVal)
+		//fmt.Println("[CLIENT DATA]", hostPrimary, clientPrimary, "=>", clientVal)
 
 		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
 		return p.done(nil)
@@ -461,7 +470,6 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 		if dataErr != nil {
 			return nil, dataErr
 		}
-		fmt.Println("[CLIENT DATA]", hostPrimary, clientPrimary, "=>", clientVal)
 
 		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
 		return
@@ -527,7 +535,7 @@ func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *
 			if err != nil {
 				return p.fail(err)
 			}
-			fmt.Println("CLIENT DATA", hostPrimary, clientPrimary, "=>", val)
+			//fmt.Println("CLIENT DATA", hostPrimary, clientPrimary, "=>", val)
 			if val == nil { // not exists increment here
 				return p.fail(ErrNotFound)
 			}

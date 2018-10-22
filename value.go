@@ -30,13 +30,13 @@ func (v *Value) fromRaw(raw valueRaw) {
 		field, ok := v.object.fields[fieldName]
 
 		if !ok {
-			fmt.Println("field has no value")
 			continue
 		}
 		v.data[fieldName] = field.ToInterface(binaryValue)
 	}
 }
 
+// FromKeyValue pasrses key value from foundationdb
 func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 	v.data = map[string]interface{}{}
 	for _, row := range rows {
@@ -52,11 +52,10 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 			fmt.Println("field is not string")
 			continue
 		}
-
 		field, ok := v.object.fields[fieldName]
 
 		if !ok {
-			fmt.Println("field has no value")
+			fmt.Println("SKIP FIELD", fieldName)
 			continue
 		}
 

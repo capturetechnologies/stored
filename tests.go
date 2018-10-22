@@ -62,6 +62,17 @@ type bigUser struct {
 	Sandbox      bool           `stored:"sandbox"`
 }
 
+type extra struct {
+	ChatID int64  `stored:"chat_id"`
+	Extra  string `stored:"extra"`
+}
+
+type extendedUser struct {
+	ID    int64  `stored:"id,primary"`
+	Name  string `stored:"name"`
+	Extra *extra `stored:"extra"`
+}
+
 func assert(name string, err error) {
 	if err == nil {
 		fmt.Println("Success «" + name + "»")
@@ -377,7 +388,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("chat 3 is invalid")
 	}
 	var count int64
-	count, err = n2nUserChat.GetClientsCount(user1)
+	count, err = n2nUserChat.GetClientsCount(user1).Int64()
 	if err != nil {
 		return err
 	}
@@ -403,7 +414,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("user 3 is invalid with offset fetching")
 	}
 
-	count, err = n2nUserChat.GetHostsCount(chat1)
+	count, err = n2nUserChat.GetHostsCount(chat1).Int64()
 	if err != nil {
 		return err
 	}
@@ -695,16 +706,52 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	return nil
 }
 
-/* TODO
-func Parallel2(dir *Directory) {
-	needed := int64{1,2,3,4}
-	res, err := dir.Do(func(tx stored.TX) {
-		for _,userID := range needed {
-			dbUser.Get(userID).Push(tx)
-		}
-	})
-	users := res.([]*User{})
-}*/
+func testsN2NSelf(testUser *Object, userUser *Relation) error {
+	user1 := user{
+		Login: "Hello",
+	}
+	fmt.Println("adding 1")
+	err := testUser.Add(&user1).Err()
+	if err != nil {
+		return err
+	}
+	user2 := user{
+		Login: "World",
+	}
+	fmt.Println("adding 2")
+	err = testUser.Add(&user2).Err()
+	if err != nil {
+		return err
+	}
+	fmt.Println("set relation !")
+	err = userUser.Set(user1, user2)
+	if err != nil {
+		return err
+	}
+	users := []*user{}
+	err = userUser.GetClients(user1, nil, 1000).ScanAll(&users)
+	if err != nil {
+		return err
+	}
+	if len(users) != 1 {
+		return errors.New("Incorrect users found for 1: " + strconv.Itoa(len(users)) + ", should be 1")
+	}
+	if users[0].Login != "World" {
+		return errors.New("Incorrect user found 1")
+	}
+	users = []*user{}
+	err = userUser.GetClients(user2, nil, 1000).ScanAll(&users)
+	if err != nil {
+		return err
+	}
+	if len(users) != 1 {
+		return errors.New("Incorrect users found for 2: " + strconv.Itoa(len(users)) + ", should be 1")
+	}
+	if users[0].Login != "Hello" {
+		return errors.New("Incorrect user found 2")
+	}
+	return nil
+}
 
 // TestsRun runs tests for STORED FoundationdDB layer
 func TestsRun(db *Cluster) {
@@ -736,6 +783,13 @@ func TestsRun(db *Cluster) {
 	dbMessage.Primary("chat_id", "id")
 	n2nMessageUser := dbMessage.N2N(n2nUser)
 
+	// n2n_self
+	n2nSelfUser := dir.Object("n2nselfuser", user{})
+	n2nSelfUser.AutoIncrement("id")
+	n2nSelfUserUser := n2nSelfUser.N2N(n2nSelfUser)
+
+	//dbExtended := dir.Object("ex_user", extendedUser{})
+
 	dir.Clear()
 	assert("Clear", testsClear(dir))
 	start := time.Now()
@@ -749,5 +803,7 @@ func TestsRun(db *Cluster) {
 	assert("types", testsTypes(dbBigUser))
 	//asset("incField", testsEditField(dbBigUser))
 	assert("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
+
+	assert("n2n_self", testsN2NSelf(n2nSelfUser, n2nSelfUserUser))
 	fmt.Println("elapsed", time.Since(start))
 }

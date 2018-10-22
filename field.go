@@ -2,8 +2,10 @@ package stored
 
 import (
 	"fmt"
+	"math/rand"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/capturetechnologies/stored/packed"
 
@@ -22,6 +24,7 @@ type Field struct {
 	Type          reflect.StructField
 	Value         reflect.Value
 	AutoIncrement bool
+	GenID         GenIDType // type of ID autogeneration, IDDate, IDRandom
 	packed        *packed.Packed
 	UnStored      bool // means this field would not be stored inside main object
 }
@@ -226,4 +229,35 @@ func (f *Field) SetAutoIncrement() {
 	default:
 		f.panic("could not be autoincremented")
 	}
+}
+
+// SetID sets unique id before the add write
+func (f *Field) SetID(idType GenIDType) {
+	switch f.Kind {
+	case reflect.Int64, reflect.Uint64:
+		f.GenID = idType
+	default:
+		f.panic("could not be autoincremented")
+	}
+}
+
+// GenerateID will return ID bytes for type specified
+func (f *Field) GenerateID() []byte {
+	switch f.Kind {
+	case reflect.Int64, reflect.Uint64:
+		var id int64
+		switch f.GenID {
+		case GenIDDate:
+			id = time.Now().UnixNano()
+			fmt.Println("UUID p1 = ", id)
+			id += rand.Int63n(1000000) - 500000
+			fmt.Println("UUID p2 = ", id)
+		case GenIDRandom:
+			id = rand.Int63()
+		default:
+			f.panic(fmt.Sprintf("GenID in undefined: %d", f.GenID))
+		}
+		return Int64(id)
+	}
+	return []byte{}
 }

@@ -11,27 +11,24 @@ import (
 
 // ErrNotFound is an error returned when no rows was found
 var ErrNotFound = errors.New("Document not found")
+
+// ErrDataCorrupt incorrect data sent
 var ErrDataCorrupt = errors.New("Data corrupt")
+
+// ErrAlreadyExist Object with this primary index or one of unique indexes already
 var ErrAlreadyExist = errors.New("This object already exist")
 
-// needObject return promise for objects data by primary key
-/*func needObject(tr fdb.ReadTransaction, sub subspace.Subspace) fdb.RangeResult {
-	start, end := sub.FDBRangeKeys()
-	r := fdb.KeyRange{Begin: start, End: end}
-	return tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll})
-}*/
+// GenIDType is type for ID generators
+type GenIDType int
 
-// fetchObject returns the kv results of an object
-/*func fetchObject(tr fdb.ReadTransaction, needed fdb.RangeResult) ([]fdb.KeyValue, error) {
-	res, err := v.GetSliceWithError()
-	if err != nil {
-		return nil, err
-	}
-	if len(res) == 0 {
-		return nil, ErrNotFound
-	}
-	return res
-}*/
+const (
+	// GenIDNone is no generateID options set
+	GenIDNone GenIDType = iota
+	// GenIDDate is option for generating unique id using unix timestamp and random combined,
+	GenIDDate
+	// GenIDRandom if you do not whant unix timestamp in your ids
+	GenIDRandom
+)
 
 func FetchRange(tr fdb.ReadTransaction, needed []fdb.RangeResult) ([][]fdb.KeyValue, error) {
 	results := make([][]fdb.KeyValue, len(needed))
@@ -62,7 +59,14 @@ func Int32(i int32) []byte {
 // Int64 convert int64 to byte array
 func Int64(i int64) []byte {
 	buffer := new(bytes.Buffer)
-	binary.Write(buffer, binary.LittleEndian, int64(i))
+	binary.Write(buffer, binary.LittleEndian, i)
+	return buffer.Bytes()
+}
+
+// Complex128 convert complex128 to byte array
+func Complex128(i complex128) []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.LittleEndian, i)
 	return buffer.Bytes()
 }
 
