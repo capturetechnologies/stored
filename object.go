@@ -24,6 +24,7 @@ type Object struct {
 	primary         directory.DirectorySubspace
 	fields          map[string]*Field
 	Indexes         map[string]*Index
+	counters        map[string]*Counter
 	Relations       []*Relation
 	keysCount       int
 }
@@ -43,6 +44,7 @@ func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj i
 	}
 	//o.key = tuple.Tuple{name}
 	o.Indexes = map[string]*Index{}
+	o.counters = map[string]*Counter{}
 	o.buildSchema(schemaObj)
 }
 
@@ -178,7 +180,7 @@ func (o *Object) addIndex(key string) *Index {
 }
 
 func (o *Object) panic(text string) {
-	panic("Stored error, object " + o.name + ":")
+	panic("Stored error, object " + o.name + ": " + text)
 }
 
 // field return field using name, panic an error if no field presented
@@ -257,7 +259,6 @@ func (o *Object) IDDate(fieldName string) *Object {
 	if !ok {
 		panic("Object " + o.name + " has no key «" + fieldName + "» could not set uuid")
 	}
-	fmt.Println("TEST", GenIDDate)
 	field.SetID(GenIDDate)
 	return o
 }
@@ -310,8 +311,25 @@ func (o *Object) IndexGeo(latKey string, longKey string) *Object {
 	return o
 }
 
-func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input *Struct, clear bool) error {
-	if clear {
+// Counter will count all objects with same value of passed fields
+func (o *Object) Counter(fieldNames ...string) *Counter {
+	fields := []*Field{}
+	for _, fieldName := range fieldNames {
+		field, ok := o.fields[fieldName]
+		if !ok {
+			panic("Object " + o.name + " has no key «" + fieldName + "» could not set counter")
+		}
+		fields = append(fields, field)
+	}
+	return counterNew(o, fields)
+}
+
+func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input *Struct, addNew bool) error {
+	if addNew {
+		for _, ctr := range o.counters {
+			ctr.increment(tr, input)
+		}
+	} else { // remove previous data
 		start, end := o.primary.Sub(primaryTuple...).FDBRangeKeys()
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 	}
@@ -375,7 +393,7 @@ func (o *Object) Update(data interface{}) *Promise {
 				index.Delete(p.tr, primaryTuple, object)
 			}
 
-			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, false)
 			if err != nil {
 				return p.fail(err)
 			}
@@ -399,6 +417,7 @@ func (o *Object) Set(data interface{}) *Promise {
 		//res := needObject(p.tr, sub)
 		return func() Chain {
 			value, err := needed.fetch()
+			addNew := false
 			if err != ErrNotFound {
 				if err != nil {
 					return p.fail(err)
@@ -413,9 +432,11 @@ func (o *Object) Set(data interface{}) *Promise {
 				for _, index := range o.Indexes {
 					index.Delete(p.tr, primaryTuple, oldObject)
 				}
+			} else {
+				addNew = true
 			}
 
-			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, addNew)
 			if err != nil {
 				p.fail(err)
 			}
@@ -562,6 +583,7 @@ func (o *Object) SetField(objOrID interface{}, fieldName string, value interface
 		sub := o.Subspace(objOrID)
 		key := sub.Pack(tuple.Tuple{field.Name})
 		fieldGet := p.tr.Get(key)
+
 		return func() Chain {
 			val, err := fieldGet.Get()
 			if err != nil {
@@ -575,21 +597,6 @@ func (o *Object) SetField(objOrID interface{}, fieldName string, value interface
 		}
 	})
 	return p
-
-	/*sub := o.Subspace(objOrID)
-	_, err = o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		key := sub.Pack(tuple.Tuple{field.Name})
-		val, err := tr.Get(key).Get()
-		if err != nil {
-			return nil, err
-		}
-		if val == nil {
-			return nil, ErrNotFound
-		}
-		tr.Set(key, bytesValue)
-		return
-	})
-	return err*/
 }
 
 // Add writes data even in primary key is empty, by setting it. Take a look at autoincrement tag
@@ -621,7 +628,7 @@ func (o *Object) Add(data interface{}) *Promise {
 				return p.fail(ErrAlreadyExist)
 			}
 
-			err = o.doWrite(p.tr, sub, primaryTuple, input, false)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
 			if err != nil {
 				return p.fail(err)
 			}
@@ -660,6 +667,10 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 			// remove indexes
 			for _, index := range o.Indexes {
 				index.Delete(p.tr, primaryTuple, object)
+			}
+
+			for _, ctr := range o.counters {
+				ctr.decrement(p.tr, object)
 			}
 
 			return p.ok()
@@ -883,8 +894,10 @@ func (o *Object) Clear() error {
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 		start, end = o.miscDir.FDBRangeKeys()
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
-		start, end = o.primary.FDBRangeKeys()
-		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		if o.primary != nil {
+			start, end = o.primary.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		}
 		for _, rel := range o.Relations {
 			start, end = rel.hostDir.FDBRangeKeys()
 			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})

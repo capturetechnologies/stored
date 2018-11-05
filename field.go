@@ -129,52 +129,6 @@ func (f *Field) BytesFromObject(objectValue interface{}) ([]byte, error) {
 // ToBytes packs interface field value to bytes
 func (f *Field) ToBytes(val interface{}) ([]byte, error) {
 	return f.packed.Encode(val)
-
-	/*var buf []byte
-	buffer := new(bytes.Buffer)
-	var err error
-	switch f.Kind {
-	case reflect.Int:
-		intVal, ok := val.(int)
-		if !ok {
-			return nil, errors.New("should be int")
-		}
-		return Int(intVal), nil
-	case reflect.Int32:
-		intVal, ok := val.(int32)
-		if !ok {
-			return nil, errors.New("should be int32")
-		}
-		return Int32(intVal), nil
-	case reflect.Int8:
-		err = binary.Write(buffer, binary.LittleEndian, int8(val.(int8)))
-	case reflect.Int16:
-		err = binary.Write(buffer, binary.LittleEndian, int16(val.(int16)))
-	case reflect.Int64:
-		intVal, ok := val.(int64)
-		if !ok {
-			return nil, errors.New("should be int64")
-		}
-		return Int64(intVal), nil
-	case reflect.Uint:
-		err = binary.Write(buffer, binary.LittleEndian, uint32(val.(uint)))
-	case reflect.Uint32:
-		err = binary.Write(buffer, binary.LittleEndian, uint32(val.(uint32)))
-	case reflect.Uint8:
-		err = binary.Write(buffer, binary.LittleEndian, uint8(val.(uint8)))
-	case reflect.Uint16:
-		err = binary.Write(buffer, binary.LittleEndian, uint16(val.(uint16)))
-	case reflect.Uint64:
-		err = binary.Write(buffer, binary.LittleEndian, uint64(val.(uint64)))
-	default:
-		err = binary.Write(buffer, binary.LittleEndian, val)
-	}
-	if err != nil {
-		fmt.Println("GetBytes binary.Write failed:", err)
-		return nil, err
-	}
-	buf = buffer.Bytes()
-	return buf, nil*/
 }
 
 func (f *Field) tupleElement(val interface{}) tuple.TupleElement {
@@ -188,33 +142,6 @@ func (f *Field) tupleElement(val interface{}) tuple.TupleElement {
 func (f *Field) ToInterface(obj []byte) interface{} {
 	val := f.packed.DecodeToInterface(obj)
 	return val
-
-	/*if len(obj) == 0 {
-		return f.GetDefault()
-	}
-	switch f.Kind {
-	case reflect.String:
-		return string(obj)
-	case reflect.Int:
-		return int(int32(binary.LittleEndian.Uint32(obj))) // forceing to store int as int32
-	case reflect.Int32:
-		return int32(binary.LittleEndian.Uint32(obj))
-	case reflect.Int64:
-		return int64(binary.LittleEndian.Uint64(obj))
-	case reflect.Slice:
-		if f.SubKind == reflect.Uint8 { // []byte
-			return obj
-		}
-	default:
-		val := f.Value.Interface()
-		buf := bytes.NewReader(obj)
-		err := binary.Read(buf, binary.LittleEndian, val)
-		if err != nil {
-			fmt.Println("binary.Read failed:", err)
-		}
-		return val
-	}
-	panic("type of this field not supported")*/
 }
 
 func (f *Field) panic(text string) {
@@ -249,9 +176,7 @@ func (f *Field) GenerateID() []byte {
 		switch f.GenID {
 		case GenIDDate:
 			id = time.Now().UnixNano()
-			fmt.Println("UUID p1 = ", id)
 			id += rand.Int63n(1000000) - 500000
-			fmt.Println("UUID p2 = ", id)
 		case GenIDRandom:
 			id = rand.Int63()
 		default:
@@ -260,4 +185,12 @@ func (f *Field) GenerateID() []byte {
 		return Int64(id)
 	}
 	return []byte{}
+}
+
+func fieldsKey(fields []*Field) string {
+	str := []string{}
+	for _, f := range fields {
+		str = append(str, f.Name)
+	}
+	return strings.Join(str, ",")
 }

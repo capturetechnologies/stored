@@ -64,6 +64,7 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 	}
 }
 
+// Scan fills object with data from value
 func (v *Value) Scan(obj interface{}) error {
 	if v.fetch != nil {
 		v.fetch()
@@ -85,6 +86,7 @@ func (v *Value) Scan(obj interface{}) error {
 		}
 
 		interfaceValue := reflect.ValueOf(val)
+
 		objField.Set(interfaceValue)
 	}
 	return nil

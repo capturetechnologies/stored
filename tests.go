@@ -398,6 +398,9 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 
 	users := []userN2N{}
 	err = n2nUserChat.GetHosts(chat1, nil, 2).ScanAll(&users)
+	if err != nil {
+		return err
+	}
 	if len(users) != 2 {
 		fmt.Println(len(users), "instead of 3", users)
 		return errors.New("incorrect users amount was fetched")
@@ -410,6 +413,9 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	}
 	users2 := []userN2N{}
 	err = n2nUserChat.GetHosts(chat1, 3, 10).ScanAll(&users2)
+	if err != nil {
+		return err
+	}
 	if users2[0].Login != "Nick" || users2[0].ID != 3 {
 		return errors.New("user 3 is invalid with offset fetching")
 	}
@@ -718,6 +724,7 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 	user2 := user{
 		Login: "World",
 	}
+
 	fmt.Println("adding 2")
 	err = testUser.Add(&user2).Err()
 	if err != nil {
@@ -749,6 +756,46 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 	}
 	if users[0].Login != "Hello" {
 		return errors.New("Incorrect user found 2")
+	}
+	return nil
+}
+
+func testsCounter(dir *Directory) error {
+	type usr struct {
+		ID   int    `stored:"id"`
+		Age  int    `stored:"age"`
+		City string `stored:"city"`
+	}
+	user := dir.Object("counter_user", usr{})
+	user.Clear()
+	user.AutoIncrement("id")
+	user.Primary("id")
+	userCityAgeCount := user.Counter("city", "age")
+	user.Add(&usr{
+		Age:  18,
+		City: "LA",
+	}).Err()
+	user.Add(&usr{
+		Age:  19,
+		City: "LA",
+	}).Err()
+	user.Add(&usr{
+		Age:  18,
+		City: "LA",
+	}).Err()
+	user.Add(&usr{
+		Age:  18,
+		City: "SF",
+	}).Err()
+	count, err := userCityAgeCount.Get(usr{
+		Age:  18,
+		City: "LA",
+	}).Int64()
+	if err != nil {
+		return err
+	}
+	if count != 2 {
+		return fmt.Errorf("counter returned incorrect value %d instead of 2", count)
 	}
 	return nil
 }
@@ -805,5 +852,7 @@ func TestsRun(db *Cluster) {
 	assert("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
 
 	assert("n2n_self", testsN2NSelf(n2nSelfUser, n2nSelfUserUser))
+
+	assert("counter", testsCounter(dir))
 	fmt.Println("elapsed", time.Since(start))
 }

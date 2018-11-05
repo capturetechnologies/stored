@@ -64,12 +64,16 @@ func (s *Struct) Primary(object *Object) tuple.Tuple {
 	if object.primaryFields == nil {
 		object.panic("primary key is undefined")
 	}
-	primary := tuple.Tuple{}
-	for _, field := range object.primaryFields {
+	return s.getTuple(object.primaryFields)
+}
+
+func (s *Struct) getTuple(fields []*Field) tuple.Tuple {
+	tuple := tuple.Tuple{}
+	for _, field := range fields {
 		fieldVal := s.Get(field)
-		primary = append(primary, field.tupleElement(fieldVal))
+		tuple = append(tuple, field.tupleElement(fieldVal))
 	}
-	return primary
+	return tuple
 }
 
 // Subspace get subspace with primary keys for parst object

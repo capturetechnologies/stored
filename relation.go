@@ -477,6 +477,39 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 	return err*/
 }
 
+// UpdateHostData writed new data from host object (host data could be )
+func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}) *Promise {
+	hostPrimary, clientPrimary := r.getPrimary(hostObj, clientObj)
+	p := r.client.promise()
+	p.do(func() Chain {
+		//_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		dataGet := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
+		row, err := dataGet.Get()
+		if err != nil {
+			return p.fail(err)
+		}
+		if row == nil {
+			return p.fail(ErrNotFound)
+		}
+
+		// getting data to store inside relation kv
+		hostVal, dataErr := r.getHostDataBytes(hostObj)
+		if dataErr != nil {
+			return p.fail(dataErr)
+		}
+
+		p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+
+		clientVal, dataErr := r.getClientDataBytes(clientObj)
+		if dataErr != nil {
+			return p.fail(dataErr)
+		}
+		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		return p.done(nil)
+	})
+	return p
+}
+
 // Check return true if relation is set (false) if not set
 func (r *Relation) Check(hostOrID interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)

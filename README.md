@@ -17,9 +17,7 @@ func init() { // init database
   }
   db := cluster.Directory("test")
   dbUser = db.Object("user", User{})
-  dbUser.Primary("id").UUID("id").Unique("login")
   dbChat = db.Object("chat", Chat{})
-  dbChat.Primary("id").UUID("id")
   dbUserChat = dbUser.N2N(dbChat)
 }
 ```

@@ -62,14 +62,22 @@ func (p *Promise) execute() (interface{}, error) {
 	return p.resp, p.err
 }
 
+func (p *Promise) clear() {
+	p.err = nil
+	p.value = nil
+	p.resp = nil
+}
+
 func (p *Promise) transact() (interface{}, error) {
 	if p.readOnly {
 		return p.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
+			p.clear() // since transaction could be repeated - should clear everything
 			p.readTr = tr.Snapshot()
 			return p.execute()
 		})
 	}
 	return p.db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+		p.clear() // clear tmp data in case if transaction resended
 		p.tr = tr
 		p.readTr = tr
 		return p.execute()
@@ -126,4 +134,26 @@ func (p *Promise) Int64() (int64, error) {
 		return res, errors.New("promise value is not int64")
 	}
 	return res, nil
+}
+
+// Join allow easely join two promises into the parallel Transaction
+// FoundationDB garantees that ether both of requests will complete or none
+func (p *Promise) Join(sidePromise *Promise) *Parallel {
+	return &Parallel{
+		Promises: []*Promise{p, sidePromise},
+		db:       p.db,
+	}
+}
+
+// JoinDo is the same as join, but its accept function instad which returns
+// promise. Usefull if you whant to add some logic prior execution. Transaction
+// will be started before logic execution.
+// at the moment of do function execution, first step if parent promise will already
+// be executed
+func (p *Promise) JoinDo(do func() *Promise) *Parallel {
+	return &Parallel{
+		Promises: []*Promise{p},
+		ghosts:   []func() *Promise{do},
+		db:       p.db,
+	}
 }

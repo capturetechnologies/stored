@@ -9,6 +9,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	//"github.com/mmcloughlin/geohash"
 )
 
 // Index represend all indexes sored has
@@ -40,14 +41,15 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 			return err
 		}
 		if len(previousBytes) != 0 {
-			//previousTuple := tuple.Unpack(previousBytes)
-			//previous := i.object.GetPrimaryField().ToInterface(previousBytes)
 			if !bytes.Equal(primaryTuple.Pack(), previousBytes) {
-				//if previousTuple != primaryTuple {
 				return ErrAlreadyExist
-				//return errors.New("Object " + i.object.name + " with index (" + i.Name + ") already set")
 			}
 		}
+	} else if i.Geo {
+		//lngInterface := input.Get(i.secondary)
+
+		//geohash.Encode(indexValue.(float64), lngInterface.(float64))
+
 	} else {
 
 		// PROBLEM IS HERE

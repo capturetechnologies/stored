@@ -292,6 +292,9 @@ func (p *Packed) DecodeToInterface(data []byte) interface{} {
 	t := p.Value.Type()
 	var isPointer bool
 	if t.Kind() == reflect.Ptr {
+		if len(data) == 0 {
+			return reflect.Zero(t).Interface()
+		}
 		t = t.Elem()
 		isPointer = true
 	}
