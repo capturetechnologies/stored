@@ -26,7 +26,7 @@ type Query struct {
 
 // Use is an index selector for query building
 func (q *Query) Use(index string) *Query {
-	for key, i := range q.object.Indexes {
+	for key, i := range q.object.indexes {
 		if key == index {
 			q.index = i
 			return q

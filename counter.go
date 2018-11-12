@@ -41,7 +41,7 @@ func (c *Counter) decrement(tr fdb.Transaction, input *Struct) {
 func (c *Counter) Get(data interface{}) *Promise {
 	input := StructAny(data)
 	p := c.object.promiseInt64()
-	p.do(func() Chain {
+	p.doRead(func() Chain {
 		t := input.getTuple(c.fields)
 		incKey := c.dir.Pack(t)
 		bytes, err := p.readTr.Get(incKey).Get()

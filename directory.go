@@ -13,7 +13,13 @@ type Directory struct {
 	objects  map[string]*Object
 }
 
+// init require name and cluster properties to be set
 func (d *Directory) init() {
+	subspace, err := directory.CreateOrOpen(d.Cluster.db, []string{"dir", d.Name}, nil)
+	if err != nil {
+		panic(err)
+	}
+	d.Subspace = subspace
 	d.objects = map[string]*Object{}
 }
 

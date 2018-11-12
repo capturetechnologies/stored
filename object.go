@@ -23,7 +23,7 @@ type Object struct {
 	miscDir         directory.DirectorySubspace
 	primary         directory.DirectorySubspace
 	fields          map[string]*Field
-	Indexes         map[string]*Index
+	indexes         map[string]*Index
 	counters        map[string]*Counter
 	Relations       []*Relation
 	keysCount       int
@@ -43,7 +43,7 @@ func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj i
 		panic(err)
 	}
 	//o.key = tuple.Tuple{name}
-	o.Indexes = map[string]*Index{}
+	o.indexes = map[string]*Index{}
 	o.counters = map[string]*Counter{}
 	o.buildSchema(schemaObj)
 }
@@ -161,7 +161,7 @@ func (o *Object) addIndex(key string) *Index {
 	if !ok {
 		panic("Object " + o.name + " has no key «" + key + "» could not set index")
 	}
-	_, ok = o.Indexes[key]
+	_, ok = o.indexes[key]
 	if ok {
 		panic("Object " + o.name + " already has index «" + key + "»")
 	}
@@ -175,7 +175,7 @@ func (o *Object) addIndex(key string) *Index {
 		object: o,
 		dir:    indexSubspace,
 	}
-	o.Indexes[key] = &index
+	o.indexes[key] = &index
 	return &index
 }
 
@@ -300,7 +300,7 @@ func (o *Object) Index(key string) *Object {
 }
 
 // IndexGeo will add and geohash based index to allow geographicly search objects
-func (o *Object) IndexGeo(latKey string, longKey string) *Object {
+func (o *Object) IndexGeo(latKey string, longKey string) *Index {
 	index := o.addIndex(latKey)
 	index.Geo = true
 	field, ok := o.fields[longKey]
@@ -308,7 +308,7 @@ func (o *Object) IndexGeo(latKey string, longKey string) *Object {
 		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
 	}
 	index.secondary = field
-	return o
+	return index
 }
 
 // Counter will count all objects with same value of passed fields
@@ -341,7 +341,7 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		value := input.GetBytes(field)
 		tr.Set(sub.Pack(tuple.Tuple{k}), value)
 	}
-	for _, index := range o.Indexes {
+	for _, index := range o.indexes {
 		//fmt.Println("WRITE index", primaryTuple, input)
 		err := index.Write(tr, primaryTuple, input)
 		if err != nil {
@@ -389,7 +389,7 @@ func (o *Object) Update(data interface{}) *Promise {
 			object := StructAny(value.Interface())
 
 			// remove indexes
-			for _, index := range o.Indexes {
+			for _, index := range o.indexes {
 				index.Delete(p.tr, primaryTuple, object)
 			}
 
@@ -429,7 +429,7 @@ func (o *Object) Set(data interface{}) *Promise {
 				oldObject := StructAny(value.Interface())
 
 				// remove indexes
-				for _, index := range o.Indexes {
+				for _, index := range o.indexes {
 					index.Delete(p.tr, primaryTuple, oldObject)
 				}
 			} else {
@@ -665,7 +665,7 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 			p.tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 
 			// remove indexes
-			for _, index := range o.Indexes {
+			for _, index := range o.indexes {
 				index.Delete(p.tr, primaryTuple, object)
 			}
 
@@ -681,7 +681,7 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 
 // GetBy fetch one row using index bye name or name of the index field
 func (o *Object) GetBy(indexKey string, data interface{}) *Promise {
-	index, ok := o.Indexes[indexKey]
+	index, ok := o.indexes[indexKey]
 	if !ok {
 		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
 	}
@@ -908,7 +908,7 @@ func (o *Object) Clear() error {
 			start, end = rel.infoDir.FDBRangeKeys()
 			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 		}
-		for _, index := range o.Indexes {
+		for _, index := range o.indexes {
 			start, end = index.dir.FDBRangeKeys()
 			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 		}

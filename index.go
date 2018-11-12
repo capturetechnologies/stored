@@ -9,7 +9,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
-	//"github.com/mmcloughlin/geohash"
+	"github.com/mmcloughlin/geohash"
 )
 
 // Index represend all indexes sored has
@@ -46,16 +46,14 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 			}
 		}
 	} else if i.Geo {
-		//lngInterface := input.Get(i.secondary)
+		lngInterface := input.Get(i.secondary)
 
-		//geohash.Encode(indexValue.(float64), lngInterface.(float64))
-
+		hash := geohash.Encode(indexValue.(float64), lngInterface.(float64))
+		key := append(tuple.Tuple{hash}, primaryTuple...)
+		tr.Set(i.dir.Pack(key), []byte{})
 	} else {
-
-		// PROBLEM IS HERE
 		key := append(tuple.Tuple{indexValue}, primaryTuple...)
 		keyPacked := i.dir.Pack(key)
-		fmt.Println("setting index ", i.Name, " properly", primaryTuple, "packed", keyPacked)
 		tr.Set(keyPacked, []byte{})
 	}
 	return nil
@@ -71,7 +69,6 @@ func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, oldObject *
 		// Add primary here
 		sub = sub.Sub(primaryTuple...)
 		start, end := sub.FDBRangeKeys()
-		fmt.Println("clear index: start", start, "end", end)
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 	}
 }
