@@ -16,7 +16,7 @@ import (
 type Index struct {
 	Name      string
 	Unique    bool
-	Geo       bool
+	Geo       int // geo precision used to
 	dir       directory.DirectorySubspace
 	object    *Object
 	field     *Field
@@ -45,12 +45,16 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 				return ErrAlreadyExist
 			}
 		}
-	} else if i.Geo {
+	} else if i.Geo != 0 {
 		lngInterface := input.Get(i.secondary)
 
 		hash := geohash.Encode(indexValue.(float64), lngInterface.(float64))
+		if i.Geo < 12 {
+			hash = hash[0:i.Geo] // Cutting hash to needed precision
+		}
 		key := append(tuple.Tuple{hash}, primaryTuple...)
 		tr.Set(i.dir.Pack(key), []byte{})
+		fmt.Println("[A] index writed", i.dir.Pack(key))
 	} else {
 		key := append(tuple.Tuple{indexValue}, primaryTuple...)
 		keyPacked := i.dir.Pack(key)
@@ -78,7 +82,6 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		i.object.panic("index is unique (lists not supported)")
 	}
 	sub := i.dir.Sub(q.primary...)
-	fmt.Println("selecting", q.primary, "->", sub)
 	start, end := sub.FDBRangeKeys()
 	if q.from != nil {
 		//start = sub.Sub(q.from...)
@@ -88,11 +91,7 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 			start = sub.Pack(q.from)
 		}
 	}
-	if q.reverse {
-		fmt.Println("reverse")
-	}
 
-	fmt.Println("start", start, "end", end)
 	r := fdb.KeyRange{Begin: start, End: end}
 	rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: q.limit, Reverse: q.reverse})
 	iterator := rangeResult.Iterator()
@@ -100,26 +99,20 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 	primaryLen := len(i.object.primaryFields)
 	values := []*needObject{}
 	for iterator.Advance() {
-		fmt.Println("in")
 		kv, err := iterator.Get()
-		fmt.Println("advanced", kv)
 		if err != nil {
-			fmt.Println("FAIL222")
 			return nil, err
 		}
 		fullTuple, err := sub.Unpack(kv.Key)
 		if err != nil {
-			fmt.Println("FAIL111")
 			return nil, err
 		}
 		if len(fullTuple)-primaryLen < 0 {
 			return nil, errors.New("invalid data: key too short")
 		}
-		fmt.Println("row enumered", fullTuple)
 		key := fullTuple[len(fullTuple)-primaryLen:]
 
 		values = append(values, i.object.need(tr, i.object.sub(key)))
-		fmt.Println("out")
 	}
 	return values, nil
 }

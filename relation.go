@@ -558,9 +558,9 @@ func (r *Relation) GetClientDataIDs(hostOrID interface{}, clientOrID interface{}
 }
 
 // GetClientData fetch client data
-func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *Promise {
+func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *PromiseValue {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	p := r.host.promise()
+	p := r.host.promiseValue()
 	p.doRead(func() Chain {
 		fetching := p.readTr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
 		return func() Chain {
@@ -579,17 +579,16 @@ func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *
 				object: r.client,
 				data:   data,
 			}
-			p.value = &value
-			return p.done(nil)
+			return p.done(&value)
 		}
 	})
 	return p
 }
 
 // GetHostData fetch client data
-func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *Promise {
+func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *PromiseValue {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	p := r.host.promise()
+	p := r.host.promiseValue()
 	p.doRead(func() Chain {
 		val, err := p.readTr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary)).Get()
 		if err != nil {
@@ -599,8 +598,7 @@ func (r *Relation) GetHostData(hostOrID interface{}, clientOrID interface{}) *Pr
 			return p.fail(ErrNotFound)
 		}
 		return func() Chain {
-			p.setValueField(r.host, r.hostDataField, val)
-			return p.done(nil)
+			return p.done(p.getValueField(r.host, r.hostDataField, val))
 		}
 	})
 	return p

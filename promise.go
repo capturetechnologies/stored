@@ -17,7 +17,6 @@ type Promise struct {
 	chain    Chain
 	err      error
 	readOnly bool
-	value    *Value
 	resp     interface{}
 }
 
@@ -44,14 +43,14 @@ func (p *Promise) ok() Chain {
 	return nil
 }
 
-func (p *Promise) setValueField(o *Object, field *Field, bytes []byte) {
+func (p *Promise) getValueField(o *Object, field *Field, bytes []byte) *Value {
 	data := map[string]interface{}{}
 	data[field.Name] = field.ToInterface(bytes)
 	val := Value{
 		object: o,
 		data:   data,
 	}
-	p.value = &val
+	return &val
 }
 
 func (p *Promise) execute() (interface{}, error) {
@@ -64,7 +63,6 @@ func (p *Promise) execute() (interface{}, error) {
 
 func (p *Promise) clear() {
 	p.err = nil
-	p.value = nil
 	p.resp = nil
 }
 
@@ -82,18 +80,6 @@ func (p *Promise) transact() (interface{}, error) {
 		p.readTr = tr
 		return p.execute()
 	})
-}
-
-// Scan appened passed object with fetched fields
-func (p *Promise) Scan(obj interface{}) error {
-	_, err := p.transact()
-	if err != nil {
-		return err
-	}
-	if p.value == nil {
-		panic("Scan couldn't be triggered because promise has no Value")
-	}
-	return p.value.Scan(obj)
 }
 
 // Err will execute the promise and return error

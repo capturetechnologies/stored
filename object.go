@@ -3,6 +3,7 @@ package stored
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -156,27 +157,27 @@ func (o *Object) wrapRange(needed []*needObject) *Slice {
 	return &slice
 }*/
 
-func (o *Object) addIndex(key string) *Index {
-	field, ok := o.fields[key]
+func (o *Object) addIndex(fieldKey, indexKey string) Index {
+	field, ok := o.fields[fieldKey]
 	if !ok {
-		panic("Object " + o.name + " has no key «" + key + "» could not set index")
+		panic("Object " + o.name + " has no key «" + fieldKey + "» could not set index")
 	}
-	_, ok = o.indexes[key]
+	_, ok = o.indexes[indexKey]
 	if ok {
-		panic("Object " + o.name + " already has index «" + key + "»")
+		panic("Object " + o.name + " already has index «" + indexKey + "»")
 	}
-	indexSubspace, err := o.dir.CreateOrOpen(o.db, []string{key}, nil)
+	indexSubspace, err := o.dir.CreateOrOpen(o.db, []string{indexKey}, nil)
 	if err != nil {
 		panic(err)
 	}
 	index := Index{
-		Name:   key,
+		Name:   indexKey,
 		field:  field,
 		object: o,
 		dir:    indexSubspace,
 	}
-	o.indexes[key] = &index
-	return &index
+	o.indexes[indexKey] = &index
+	return index
 }
 
 func (o *Object) panic(text string) {
@@ -287,7 +288,7 @@ func (o *Object) AutoIncrement(name string) *Object {
 
 // Unique index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
 func (o *Object) Unique(key string) *Object {
-	index := o.addIndex(key)
+	index := o.addIndex(key, key)
 	index.Unique = true
 
 	return o
@@ -295,20 +296,25 @@ func (o *Object) Unique(key string) *Object {
 
 // Index add an simple index for specific key
 func (o *Object) Index(key string) *Object {
-	o.addIndex(key)
+	o.addIndex(key, key)
 	return o
 }
 
 // IndexGeo will add and geohash based index to allow geographicly search objects
-func (o *Object) IndexGeo(latKey string, longKey string) *Index {
-	index := o.addIndex(latKey)
-	index.Geo = true
+// geoPrecision 0 means full precision:
+// 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
+func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) IndexGeo {
+	index := o.addIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
+	if geoPrecision < 1 || geoPrecision > 12 {
+		geoPrecision = 12
+	}
+	index.Geo = geoPrecision
 	field, ok := o.fields[longKey]
 	if !ok {
 		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
 	}
 	index.secondary = field
-	return index
+	return IndexGeo{index: &index}
 }
 
 // Counter will count all objects with same value of passed fields
@@ -354,6 +360,22 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 func (o *Object) promise() *Promise {
 	return &Promise{
 		db: o.db,
+	}
+}
+
+func (o *Object) promiseSlice() *PromiseSlice {
+	return &PromiseSlice{
+		Promise{
+			db: o.db,
+		},
+	}
+}
+
+func (o *Object) promiseValue() *PromiseValue {
+	return &PromiseValue{
+		Promise{
+			db: o.db,
+		},
 	}
 }
 
@@ -490,8 +512,7 @@ func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal inter
 			if err != nil {
 				return p.fail(err)
 			}
-			p.setValueField(o, field, bytes)
-			return p.done(nil)
+			return p.done(p.getValueField(o, field, bytes))
 		}
 	})
 	return p
@@ -680,13 +701,13 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 }
 
 // GetBy fetch one row using index bye name or name of the index field
-func (o *Object) GetBy(indexKey string, data interface{}) *Promise {
+func (o *Object) GetBy(indexKey string, data interface{}) *PromiseValue {
 	index, ok := o.indexes[indexKey]
 	if !ok {
 		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
 	}
 
-	p := o.promise()
+	p := o.promiseValue()
 	p.doRead(func() Chain {
 		sub, err := index.getPrimary(p.readTr, data)
 		if err != nil {
@@ -711,8 +732,7 @@ func (o *Object) GetBy(indexKey string, data interface{}) *Promise {
 				object: o,
 			}
 			value.FromKeyValue(sub, rows)
-			p.value = &value
-			return p.done(nil)
+			return p.done(&value)
 		}
 	})
 	return p
@@ -758,8 +778,8 @@ func (o *Object) valueFromRange(sub subspace.Subspace, res fdb.RangeResult) (*Va
 }
 
 // Get fetch object using primary id
-func (o *Object) Get(objOrID interface{}) *Promise {
-	p := o.promise()
+func (o *Object) Get(objOrID interface{}) *PromiseValue {
+	p := o.promiseValue()
 	p.doRead(func() Chain {
 		sub := o.getPrimarySub(objOrID)
 
@@ -767,13 +787,11 @@ func (o *Object) Get(objOrID interface{}) *Promise {
 		needed := o.need(p.readTr, sub)
 
 		return func() Chain {
-			var err error
-
-			p.value, err = needed.fetch()
+			res, err := needed.fetch()
 			if err != nil {
 				return p.fail(err)
 			}
-			return p.done(nil)
+			return p.done(res)
 		}
 	})
 	return p

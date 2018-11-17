@@ -716,7 +716,6 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 	user1 := user{
 		Login: "Hello",
 	}
-	fmt.Println("adding 1")
 	err := testUser.Add(&user1).Err()
 	if err != nil {
 		return err
@@ -725,12 +724,10 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 		Login: "World",
 	}
 
-	fmt.Println("adding 2")
 	err = testUser.Add(&user2).Err()
 	if err != nil {
 		return err
 	}
-	fmt.Println("set relation !")
 	err = userUser.Set(user1, user2)
 	if err != nil {
 		return err
