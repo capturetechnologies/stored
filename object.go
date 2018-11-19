@@ -157,7 +157,7 @@ func (o *Object) wrapRange(needed []*needObject) *Slice {
 	return &slice
 }*/
 
-func (o *Object) addIndex(fieldKey, indexKey string) Index {
+func (o *Object) addIndex(fieldKey, indexKey string) *Index {
 	field, ok := o.fields[fieldKey]
 	if !ok {
 		panic("Object " + o.name + " has no key «" + fieldKey + "» could not set index")
@@ -177,7 +177,7 @@ func (o *Object) addIndex(fieldKey, indexKey string) Index {
 		dir:    indexSubspace,
 	}
 	o.indexes[indexKey] = &index
-	return index
+	return &index
 }
 
 func (o *Object) panic(text string) {
@@ -314,7 +314,7 @@ func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) Index
 		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
 	}
 	index.secondary = field
-	return IndexGeo{index: &index}
+	return IndexGeo{index: index}
 }
 
 // Counter will count all objects with same value of passed fields
