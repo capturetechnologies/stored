@@ -49,7 +49,9 @@ func (c *Counter) Get(data interface{}) *Promise {
 			return p.fail(err)
 		}
 		if len(bytes) == 0 {
-			return p.fail(ErrNotFound)
+			// counter not created yet
+			return p.done(int64(0))
+			//return p.fail(ErrNotFound)
 		}
 		return p.done(ToInt64(bytes))
 	})

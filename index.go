@@ -47,14 +47,16 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 		}
 	} else if i.Geo != 0 {
 		lngInterface := input.Get(i.secondary)
-
-		hash := geohash.Encode(indexValue.(float64), lngInterface.(float64))
-		if i.Geo < 12 {
-			hash = hash[0:i.Geo] // Cutting hash to needed precision
+		lat, long := indexValue.(float64), lngInterface.(float64)
+		if lat != 0.0 && long != 0.0 {
+			hash := geohash.Encode(lat, long)
+			if i.Geo < 12 {
+				hash = hash[0:i.Geo] // Cutting hash to needed precision
+			}
+			key := append(tuple.Tuple{hash}, primaryTuple...)
+			tr.Set(i.dir.Pack(key), []byte{})
+			fmt.Println("[A] index writed", i.dir.Pack(key))
 		}
-		key := append(tuple.Tuple{hash}, primaryTuple...)
-		tr.Set(i.dir.Pack(key), []byte{})
-		fmt.Println("[A] index writed", i.dir.Pack(key))
 	} else {
 		key := append(tuple.Tuple{indexValue}, primaryTuple...)
 		keyPacked := i.dir.Pack(key)
