@@ -19,6 +19,9 @@ var ErrDataCorrupt = errors.New("Data corrupt")
 // ErrAlreadyExist Object with this primary index or one of unique indexes already
 var ErrAlreadyExist = errors.New("This object already exist")
 
+// Key is main type for byte array keys
+type Key = []byte
+
 // GenIDType is type for ID generators
 type GenIDType int
 

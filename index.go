@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
+	"runtime/debug"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -21,17 +23,54 @@ type Index struct {
 	object    *Object
 	field     *Field
 	secondary *Field
+	handle    func(interface{}) Key
+	toDelete  tuple.Tuple
+}
+
+// getKey will return index tuple
+func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
+	if i.handle != nil {
+		fmt.Println(string(debug.Stack()))
+		keyBytes := i.handle(input.object.Interface())
+		// Would not index object if key is empty
+		if len(keyBytes) == 0 {
+			return nil
+		}
+		key = tuple.Tuple{keyBytes}
+	} else {
+		indexValue := input.Get(i.field)
+		if i.field.isEmpty(indexValue) {
+			return nil
+		}
+		if i.Geo != 0 {
+			lngInterface := input.Get(i.secondary)
+			lat, long := indexValue.(float64), lngInterface.(float64)
+			if lat == 0.0 && long == 0.0 {
+				return nil
+			}
+			hash := geohash.Encode(lat, long)
+			if i.Geo < 12 {
+				hash = hash[0:i.Geo] // Cutting hash to needed precision
+			}
+			key = tuple.Tuple{hash}
+		} else {
+			key = tuple.Tuple{indexValue}
+		}
+	}
+	return
 }
 
 // Write writes index related keys
 func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struct) error {
-	indexValue := input.Get(i.field)
-	if i.field.isEmpty(indexValue) {
-		return nil
+	key := i.getKey(input)
+	if i.toDelete != nil {
+		if reflect.DeepEqual(i.toDelete, key) {
+			return nil
+		}
+		i.Delete(tr, primaryTuple)
 	}
 
 	if i.Unique {
-		key := tuple.Tuple{indexValue}
 		previousPromise := tr.Get(i.dir.Pack(key))
 
 		tr.Set(i.dir.Pack(key), primaryTuple.Pack()) // will be cancelled in case of error
@@ -45,30 +84,21 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 				return ErrAlreadyExist
 			}
 		}
-	} else if i.Geo != 0 {
-		lngInterface := input.Get(i.secondary)
-		lat, long := indexValue.(float64), lngInterface.(float64)
-		if lat != 0.0 && long != 0.0 {
-			hash := geohash.Encode(lat, long)
-			if i.Geo < 12 {
-				hash = hash[0:i.Geo] // Cutting hash to needed precision
-			}
-			key := append(tuple.Tuple{hash}, primaryTuple...)
-			tr.Set(i.dir.Pack(key), []byte{})
-			fmt.Println("[A] index writed", i.dir.Pack(key))
-		}
 	} else {
-		key := append(tuple.Tuple{indexValue}, primaryTuple...)
-		keyPacked := i.dir.Pack(key)
-		tr.Set(keyPacked, []byte{})
+		fullKey := append(key, primaryTuple...)
+		tr.Set(i.dir.Pack(fullKey), []byte{})
 	}
 	return nil
 }
 
 // Delete removes selected index
-func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, oldObject *Struct) {
-	indexValue := oldObject.Get(i.field)
-	sub := i.dir.Sub(indexValue)
+func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple) {
+	key := i.toDelete
+	if key == nil {
+		// no need to clean, this field wasn't indexed
+		return
+	}
+	sub := i.dir.Sub(key...)
 	if i.Unique {
 		tr.Clear(sub)
 	} else {

@@ -14,6 +14,7 @@ type Cluster struct {
 	db fdb.Database
 }
 
+// ClusterStatus is status command fdb format
 type ClusterStatus struct {
 	Client struct {
 		ClusterFile struct {

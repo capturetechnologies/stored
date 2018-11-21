@@ -157,12 +157,18 @@ func (o *Object) wrapRange(needed []*needObject) *Slice {
 	return &slice
 }*/
 
-func (o *Object) addIndex(fieldKey, indexKey string) *Index {
+func (o *Object) addFieldIndex(fieldKey, indexKey string) *Index {
 	field, ok := o.fields[fieldKey]
 	if !ok {
 		panic("Object " + o.name + " has no key «" + fieldKey + "» could not set index")
 	}
-	_, ok = o.indexes[indexKey]
+	index := o.addIndex(indexKey)
+	index.field = field
+	return index
+}
+
+func (o *Object) addIndex(indexKey string) *Index {
+	_, ok := o.indexes[indexKey]
 	if ok {
 		panic("Object " + o.name + " already has index «" + indexKey + "»")
 	}
@@ -172,7 +178,6 @@ func (o *Object) addIndex(fieldKey, indexKey string) *Index {
 	}
 	index := Index{
 		Name:   indexKey,
-		field:  field,
 		object: o,
 		dir:    indexSubspace,
 	}
@@ -288,7 +293,7 @@ func (o *Object) AutoIncrement(name string) *Object {
 
 // Unique index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
 func (o *Object) Unique(key string) *Object {
-	index := o.addIndex(key, key)
+	index := o.addFieldIndex(key, key)
 	index.Unique = true
 
 	return o
@@ -296,7 +301,7 @@ func (o *Object) Unique(key string) *Object {
 
 // Index add an simple index for specific key
 func (o *Object) Index(key string) *Object {
-	o.addIndex(key, key)
+	o.addFieldIndex(key, key)
 	return o
 }
 
@@ -304,7 +309,7 @@ func (o *Object) Index(key string) *Object {
 // geoPrecision 0 means full precision:
 // 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
 func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) IndexGeo {
-	index := o.addIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
+	index := o.addFieldIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
 	if geoPrecision < 1 || geoPrecision > 12 {
 		geoPrecision = 12
 	}
@@ -315,6 +320,14 @@ func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) Index
 	}
 	index.secondary = field
 	return IndexGeo{index: index}
+}
+
+// IndexCustom add an custom index generated dynamicly using callback function
+// custom indexes in an general way to implement any index on top of it
+func (o *Object) IndexCustom(key string, cb func(object interface{}) Key) *Index {
+	index := o.addIndex(key)
+	index.handle = cb
+	return index
 }
 
 // Counter will count all objects with same value of passed fields
@@ -412,7 +425,8 @@ func (o *Object) Update(data interface{}) *Promise {
 
 			// remove indexes
 			for _, index := range o.indexes {
-				index.Delete(p.tr, primaryTuple, object)
+				index.toDelete = index.getKey(object)
+				//index.Delete(p.tr, primaryTuple, object)
 			}
 
 			err = o.doWrite(p.tr, sub, primaryTuple, input, false)
@@ -452,7 +466,8 @@ func (o *Object) Set(data interface{}) *Promise {
 
 				// remove indexes
 				for _, index := range o.indexes {
-					index.Delete(p.tr, primaryTuple, oldObject)
+					index.toDelete = index.getKey(oldObject)
+					//index.Delete(p.tr, primaryTuple, oldObject)
 				}
 			} else {
 				addNew = true
@@ -687,7 +702,8 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 
 			// remove indexes
 			for _, index := range o.indexes {
-				index.Delete(p.tr, primaryTuple, object)
+				index.toDelete = index.getKey(object)
+				index.Delete(p.tr, primaryTuple)
 			}
 
 			for _, ctr := range o.counters {
