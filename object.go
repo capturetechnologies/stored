@@ -343,7 +343,7 @@ func (o *Object) Counter(fieldNames ...string) *Counter {
 	return counterNew(o, fields)
 }
 
-func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input *Struct, addNew bool) error {
+func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input, oldObject *Struct, addNew bool) error {
 	if addNew {
 		for _, ctr := range o.counters {
 			ctr.increment(tr, input)
@@ -362,7 +362,7 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 	}
 	for _, index := range o.indexes {
 		//fmt.Println("WRITE index", primaryTuple, input)
-		err := index.Write(tr, primaryTuple, input)
+		err := index.Write(tr, primaryTuple, input, oldObject)
 		if err != nil {
 			return err
 		}
@@ -423,13 +423,7 @@ func (o *Object) Update(data interface{}) *Promise {
 			}
 			object := StructAny(value.Interface())
 
-			// remove indexes
-			for _, index := range o.indexes {
-				index.toDelete = index.getKey(object)
-				//index.Delete(p.tr, primaryTuple, object)
-			}
-
-			err = o.doWrite(p.tr, sub, primaryTuple, input, false)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, object, false)
 			if err != nil {
 				return p.fail(err)
 			}
@@ -454,6 +448,7 @@ func (o *Object) Set(data interface{}) *Promise {
 		return func() Chain {
 			value, err := needed.fetch()
 			addNew := false
+			var oldObject *Struct
 			if err != ErrNotFound {
 				if err != nil {
 					return p.fail(err)
@@ -462,18 +457,12 @@ func (o *Object) Set(data interface{}) *Promise {
 				if err != nil {
 					return p.fail(err)
 				}
-				oldObject := StructAny(value.Interface())
-
-				// remove indexes
-				for _, index := range o.indexes {
-					index.toDelete = index.getKey(oldObject)
-					//index.Delete(p.tr, primaryTuple, oldObject)
-				}
+				oldObject = StructAny(value.Interface())
 			} else {
 				addNew = true
 			}
 
-			err = o.doWrite(p.tr, sub, primaryTuple, input, addNew)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, oldObject, addNew)
 			if err != nil {
 				p.fail(err)
 			}
@@ -491,10 +480,12 @@ func (o *Object) Subspace(objOrID interface{}) subspace.Subspace {
 }
 
 // IncField increment field
+// does not implement indexes in the moment
 func (o *Object) IncField(objOrID interface{}, fieldName string, incVal interface{}) *Promise {
 	field := o.field(fieldName)
 	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
-	sub := o.Subspace(objOrID)
+	primaryTuple := o.getPrimaryTuple(objOrID)
+	sub := o.primary.Sub(primaryTuple...)
 	p := o.promise()
 	p.do(func() Chain {
 		incKey := sub.Pack(tuple.Tuple{field.Name})
@@ -503,6 +494,11 @@ func (o *Object) IncField(objOrID interface{}, fieldName string, incVal interfac
 			return p.fail(err)
 		}
 		p.tr.Add(incKey, val)
+		/*for _,i := range o.indexes {
+			if i.field == field || i.handle != nil {
+				i.Write(p.tr, primaryTuple, input, oldObject)
+			}
+		}*/
 		return p.done(nil)
 	})
 	return p
@@ -664,7 +660,7 @@ func (o *Object) Add(data interface{}) *Promise {
 				return p.fail(ErrAlreadyExist)
 			}
 
-			err = o.doWrite(p.tr, sub, primaryTuple, input, true)
+			err = o.doWrite(p.tr, sub, primaryTuple, input, nil, true)
 			if err != nil {
 				return p.fail(err)
 			}
@@ -702,8 +698,8 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 
 			// remove indexes
 			for _, index := range o.indexes {
-				index.toDelete = index.getKey(object)
-				index.Delete(p.tr, primaryTuple)
+				toDelete := index.getKey(object)
+				index.Delete(p.tr, primaryTuple, toDelete)
 			}
 
 			for _, ctr := range o.counters {
@@ -951,6 +947,18 @@ func (o *Object) Clear() error {
 	return err
 }
 
+// ClearAllIndexes clears all indexes data
+func (o *Object) ClearAllIndexes() error {
+	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		for _, index := range o.indexes {
+			start, end := index.dir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		}
+		return
+	})
+	return err
+}
+
 func (o *Object) sub(key tuple.Tuple) subspace.Subspace {
 	return o.primary.Sub(key...)
 }
@@ -993,7 +1001,6 @@ func (o *Object) Reindex() {
 			if stop {
 				return
 			}
-			fmt.Println("REINDEX MSG", num)
 			err := o.Delete(item).Err()
 			if err != nil {
 				fmt.Println("DELETEED, err", err)

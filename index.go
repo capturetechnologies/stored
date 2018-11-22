@@ -3,9 +3,7 @@ package stored
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"reflect"
-	"runtime/debug"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -24,16 +22,14 @@ type Index struct {
 	field     *Field
 	secondary *Field
 	handle    func(interface{}) Key
-	toDelete  tuple.Tuple
 }
 
 // getKey will return index tuple
 func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 	if i.handle != nil {
-		fmt.Println(string(debug.Stack()))
 		keyBytes := i.handle(input.object.Interface())
 		// Would not index object if key is empty
-		if len(keyBytes) == 0 {
+		if keyBytes == nil || len(keyBytes) == 0 {
 			return nil
 		}
 		key = tuple.Tuple{keyBytes}
@@ -61,13 +57,20 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 }
 
 // Write writes index related keys
-func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struct) error {
+func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldObject *Struct) error {
 	key := i.getKey(input)
-	if i.toDelete != nil {
-		if reflect.DeepEqual(i.toDelete, key) {
-			return nil
+	if oldObject != nil {
+		toDelete := i.getKey(oldObject)
+		if toDelete != nil {
+			if reflect.DeepEqual(toDelete, key) {
+				return nil
+			}
+			i.Delete(tr, primaryTuple, toDelete)
 		}
-		i.Delete(tr, primaryTuple)
+	}
+	// nil means should not index this object
+	if key == nil {
+		return nil
 	}
 
 	if i.Unique {
@@ -92,8 +95,7 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input *Struc
 }
 
 // Delete removes selected index
-func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple) {
-	key := i.toDelete
+func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, key tuple.Tuple) {
 	if key == nil {
 		// no need to clean, this field wasn't indexed
 		return
