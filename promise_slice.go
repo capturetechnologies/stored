@@ -1,6 +1,6 @@
 package stored
 
-// PromiseList is implements everything promise implements but more
+// PromiseSlice is implements everything promise implements but more
 type PromiseSlice struct {
 	Promise
 }

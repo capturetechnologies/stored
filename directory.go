@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -17,6 +18,7 @@ type Directory struct {
 	Cluster  *Cluster
 	Subspace directory.DirectorySubspace
 	objects  map[string]*Object
+	mux      sync.Mutex
 }
 
 // init require name and cluster properties to be set
@@ -56,7 +58,9 @@ func (d *Directory) init() {
 func (d *Directory) Object(name string, schemaObj interface{}) (ret *Object) {
 	ret = &Object{}
 	ret.init(name, &d.Cluster.db, d, schemaObj)
+	d.mux.Lock()
 	d.objects[name] = ret
+	d.mux.Unlock()
 	return
 }
 

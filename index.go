@@ -181,3 +181,19 @@ func (i *Index) getPrimary(tr fdb.ReadTransaction, data interface{}) (subspace.S
 		return i.object.primary.Sub(primaryTuple...), nil
 	}
 }
+
+// ReindexUnsafe will update index info (NOT consistency safe function)
+// this function will use data provited by th object so should be used with care
+func (i *Index) ReindexUnsafe(data interface{}) *PromiseErr {
+	input := StructAny(data)
+	p := i.object.promiseErr()
+	p.do(func() Chain {
+		primaryTuple := input.Primary(i.object)
+		err := i.Write(p.tr, primaryTuple, input, nil)
+		if err != nil {
+			return p.fail(err)
+		}
+		return p.done(nil)
+	})
+	return p
+}

@@ -34,7 +34,7 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 	}
 	neighbors := geohash.Neighbors(hash)
 	search := append(neighbors, hash)
-	fmt.Println("search scope", search)
+	fmt.Println("search scope hashes:", search)
 	p := i.object.promiseSlice()
 	p.doRead(func() Chain {
 		rangeResults := map[string]fdb.RangeResult{}
@@ -79,7 +79,6 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 						continue
 						//return p.fail(err)
 					}
-					fmt.Println("val here", val)
 					slice.Append(val)
 				}
 				return p.done(&slice) // return frinish slice here

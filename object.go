@@ -308,7 +308,7 @@ func (o *Object) Index(key string) *Object {
 // IndexGeo will add and geohash based index to allow geographicly search objects
 // geoPrecision 0 means full precision:
 // 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
-func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) IndexGeo {
+func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) *IndexGeo {
 	index := o.addFieldIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
 	if geoPrecision < 1 || geoPrecision > 12 {
 		geoPrecision = 12
@@ -319,7 +319,7 @@ func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) Index
 		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
 	}
 	index.secondary = field
-	return IndexGeo{index: index}
+	return &IndexGeo{index: index}
 }
 
 // IndexCustom add an custom index generated dynamicly using callback function
@@ -378,6 +378,14 @@ func (o *Object) promise() *Promise {
 
 func (o *Object) promiseSlice() *PromiseSlice {
 	return &PromiseSlice{
+		Promise{
+			db: o.db,
+		},
+	}
+}
+
+func (o *Object) promiseErr() *PromiseErr {
+	return &PromiseErr{
 		Promise{
 			db: o.db,
 		},
