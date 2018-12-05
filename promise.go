@@ -44,11 +44,12 @@ func (p *Promise) ok() Chain {
 }
 
 func (p *Promise) getValueField(o *Object, field *Field, bytes []byte) *Value {
-	data := map[string]interface{}{}
-	data[field.Name] = field.ToInterface(bytes)
+	raw := valueRaw{}
+	//data := map[string]interface{}{}
+	raw[field.Name] = bytes
 	val := Value{
 		object: o,
-		data:   data,
+		raw:    raw,
 	}
 	return &val
 }

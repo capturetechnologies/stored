@@ -90,8 +90,8 @@ func testsSetGet(smUser *Object) error {
 		return err
 	}
 
-	newUser := user{}
-	err = smUser.Get(20).Scan(&newUser)
+	newUser := user{ID: 20}
+	err = smUser.Get(&newUser).Err()
 	if err != nil {
 		return err
 	}
@@ -103,8 +103,8 @@ func testsSetGet(smUser *Object) error {
 }
 
 func testsSetGetPerformance(dir *Directory) error {
-	smUser := dir.Object("small_user", user{})
-	bgUser := dir.Object("big_user", bigUser{})
+	smUser := dir.Object("small_user", user{}).Done()
+	bgUser := dir.Object("big_user", bigUser{}).Done()
 
 	for i := 0; i < 1; i++ {
 		err := smUser.Set(user{ID: 2, Login: "some relevant amount of information for all the data should be passed with full object"}).Err()
@@ -121,14 +121,14 @@ func testsSetGetPerformance(dir *Directory) error {
 			return err
 		}
 
-		newUser := user{}
-		err = smUser.Get(2).Scan(&newUser)
+		newUser := user{ID: 2}
+		err = smUser.Get(&newUser).Err()
 		if err != nil {
 			return err
 		}
 
-		newUser2 := bigUser{}
-		err = bgUser.Get(3).Scan(&newUser2)
+		newUser2 := bigUser{ID: 3}
+		err = bgUser.Get(&newUser2).Err()
 		if err != nil {
 			return err
 		}
@@ -142,8 +142,8 @@ func testsUnique(smUser *Object) error {
 		return err
 	}
 
-	gotUser := user{}
-	err = smUser.GetBy("login", "john25").Scan(&gotUser)
+	gotUser := user{Login: "john25"}
+	err = smUser.GetBy(&gotUser, "login").Err()
 	if err != nil {
 		return err
 	}
@@ -158,8 +158,8 @@ func testsIndex(smUser *Object) error {
 	if err != nil {
 		return err
 	}
-	gotUser := user{}
-	err = smUser.GetBy("login", "john24").Scan(&gotUser)
+	gotUser := user{Login: "john24"}
+	err = smUser.GetBy(&gotUser, "login").Err()
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func testsIndex(smUser *Object) error {
 }
 
 func testsClear(dir *Directory) error {
-	smUser := dir.Object("small_user", user{})
+	smUser := dir.Object("small_user", user{}).Done()
 	err := smUser.Set(user{ID: 1, Login: "TmpJohn"}).Err()
 	if err != nil {
 		return err
@@ -181,8 +181,8 @@ func testsClear(dir *Directory) error {
 		return err
 	}
 
-	newUser := user{}
-	err = smUser.Get(1).Scan(&newUser)
+	newUser := user{ID: 1}
+	err = smUser.Get(&newUser).Err()
 	if err != nil {
 		if err == ErrNotFound {
 			return nil
@@ -216,15 +216,16 @@ func testsAutoIncrement(dbUser *Object) error {
 	if user2.ID != 2 || user2.Login != "sam" {
 		return errors.New("new user2 incorrect")
 	}
-	userGet := userAutoInc{}
-	err = dbUser.Get(1).Scan(&userGet)
+	userGet := userAutoInc{ID: 1}
+	err = dbUser.Get(&userGet).Err()
 	if err != nil {
 		return err
 	}
 	if userGet.ID != 1 || userGet.Login != "john" {
 		return errors.New("get user1 incorrect")
 	}
-	err = dbUser.Get(2).Scan(&userGet)
+	userGet.ID = 2
+	err = dbUser.Get(&userGet).Err()
 	if err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func testsAutoIncrement(dbUser *Object) error {
 }
 
 func testsMultiGet(dbUser *Object) error {
-	need := []int{}
+	users := []*userAutoInc{}
 	for i := 0; i < 10; i++ {
 		toAdd := userAutoInc{
 			Login: "sam" + strconv.Itoa(i),
@@ -244,10 +245,10 @@ func testsMultiGet(dbUser *Object) error {
 		if err != nil {
 			return err
 		}
-		need = append(need, i+1)
+		users = append(users, &userAutoInc{ID: i + 1})
 	}
-	users := []userAutoInc{}
-	dbUser.MultiGet(need).ScanAll(&users)
+
+	dbUser.MultiGet(users).Err()
 	if len(users) < 10 {
 		return errors.New("user count is incorrect")
 	}
@@ -571,8 +572,8 @@ func testsTypes(dbUser *Object) error {
 	}
 	dbUser.Add(&u).Err()
 
-	fetchedUser := bigUser{}
-	err := dbUser.Get(u.ID).Scan(&fetchedUser)
+	fetchedUser := bigUser{ID: u.ID}
+	err := dbUser.Get(&fetchedUser).Err()
 	if err != nil {
 		return err
 	}
@@ -599,13 +600,13 @@ func testsEditField(dbUser *Object) error {
 	if err != nil {
 		return err
 	}
-	err = dbUser.IncField(u, "score", 1).Err()
+	err = dbUser.IncFieldUnsafe(u, "score", 1).Err()
 	if err != nil {
 		return err
 	}
 
-	fetchedUser := bigUser{}
-	err = dbUser.Get(u.ID).Scan(&fetchedUser)
+	fetchedUser := bigUser{ID: u.ID}
+	err = dbUser.Get(&fetchedUser).Err()
 	if err != nil {
 		return err
 	}
@@ -613,8 +614,11 @@ func testsEditField(dbUser *Object) error {
 		return errors.New("score has incorrent value after Increment")
 	}
 
-	dbUser.SetField(u, "score", 4).Err()
-	err = dbUser.Get(u.ID).Scan(&fetchedUser)
+	u.Score = 4
+	dbUser.SetField(&u, "score").Err()
+
+	fetchedUser.ID = u.ID
+	err = dbUser.Get(&fetchedUser).Err()
 	if err != nil {
 		return err
 	}
@@ -646,13 +650,11 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 		return err
 	}
 
-	toFetch := message{
+	fetching := message{
 		ChatID: 1,
 		ID:     1,
 	}
-
-	fetching := message{}
-	err = dbMessage.Get(toFetch).Scan(&fetching)
+	err = dbMessage.Get(&fetching).Err()
 	if err != nil {
 		return err
 	}
@@ -764,23 +766,25 @@ func testsCounter(dir *Directory) error {
 		City string `stored:"city"`
 	}
 	user := dir.Object("counter_user", usr{})
-	user.Clear()
+
 	user.AutoIncrement("id")
 	user.Primary("id")
 	userCityAgeCount := user.Counter("city", "age")
-	user.Add(&usr{
+	dbUser := user.Done()
+	dbUser.Clear()
+	dbUser.Add(&usr{
 		Age:  18,
 		City: "LA",
 	}).Err()
-	user.Add(&usr{
+	dbUser.Add(&usr{
 		Age:  19,
 		City: "LA",
 	}).Err()
-	user.Add(&usr{
+	dbUser.Add(&usr{
 		Age:  18,
 		City: "LA",
 	}).Err()
-	user.Add(&usr{
+	dbUser.Add(&usr{
 		Age:  18,
 		City: "SF",
 	}).Err()
@@ -837,18 +841,18 @@ func TestsRun(db *Cluster) {
 	dir.Clear()
 	assert("Clear", testsClear(dir))
 	start := time.Now()
-	assert("SetGet", testsSetGet(smUser))
-	assert("Index", testsIndex(smUserIndex))
-	assert("Unique", testsUnique(smUserUnique))
-	assert("AutoIncrement", testsAutoIncrement(userAutoIncrement))
-	assert("MultiGet", testsMultiGet(userMulti))
-	assert("n2n", testsN2N(n2nUser, n2nChat, n2nUserChat))
-	assert("n2n_data", testsN2NData(n2nUser, n2nChat, n2nUserChat2))
-	assert("types", testsTypes(dbBigUser))
+	assert("SetGet", testsSetGet(smUser.Done()))
+	assert("Index", testsIndex(smUserIndex.Done()))
+	assert("Unique", testsUnique(smUserUnique.Done()))
+	assert("AutoIncrement", testsAutoIncrement(userAutoIncrement.Done()))
+	assert("MultiGet", testsMultiGet(userMulti.Done()))
+	assert("n2n", testsN2N(n2nUser.Done(), n2nChat.Done(), n2nUserChat))
+	assert("n2n_data", testsN2NData(n2nUser.Done(), n2nChat.Done(), n2nUserChat2))
+	assert("types", testsTypes(dbBigUser.Done()))
 	//asset("incField", testsEditField(dbBigUser))
-	assert("multiPrimary", testsMultiPrimary(dbMessage, n2nMessageUser, n2nUser))
+	assert("multiPrimary", testsMultiPrimary(dbMessage.Done(), n2nMessageUser, n2nUser.Done()))
 
-	assert("n2n_self", testsN2NSelf(n2nSelfUser, n2nSelfUserUser))
+	assert("n2n_self", testsN2NSelf(n2nSelfUser.Done(), n2nSelfUserUser))
 
 	assert("counter", testsCounter(dir))
 	fmt.Println("elapsed", time.Since(start))

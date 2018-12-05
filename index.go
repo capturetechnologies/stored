@@ -27,7 +27,7 @@ type Index struct {
 // getKey will return index tuple
 func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 	if i.handle != nil {
-		keyBytes := i.handle(input.object.Interface())
+		keyBytes := i.handle(input.value.Interface())
 		// Would not index object if key is empty
 		if keyBytes == nil || len(keyBytes) == 0 {
 			return nil
@@ -166,29 +166,29 @@ func (i *Index) getPrimary(tr fdb.ReadTransaction, data interface{}) (subspace.S
 			return nil, err
 		}
 		return i.object.primary.Sub(primaryTuple...), nil
-	} else {
-		sel := fdb.FirstGreaterThan(sub)
-		primaryKey, err := tr.GetKey(sel).Get()
-		if err != nil {
-			return nil, err
-		}
-		primaryTuple, err := sub.Unpack(primaryKey)
-		//primary, err := UnpackKeyIndex(indexKey, primaryKey)
-		if err != nil || len(primaryTuple) < 1 {
-			return nil, ErrNotFound
-		}
-
-		return i.object.primary.Sub(primaryTuple...), nil
 	}
+
+	sel := fdb.FirstGreaterThan(sub)
+	primaryKey, err := tr.GetKey(sel).Get()
+	if err != nil {
+		return nil, err
+	}
+	primaryTuple, err := sub.Unpack(primaryKey)
+	//primary, err := UnpackKeyIndex(indexKey, primaryKey)
+	if err != nil || len(primaryTuple) < 1 {
+		return nil, ErrNotFound
+	}
+
+	return i.object.primary.Sub(primaryTuple...), nil
 }
 
 // ReindexUnsafe will update index info (NOT consistency safe function)
 // this function will use data provited by th object so should be used with care
 func (i *Index) ReindexUnsafe(data interface{}) *PromiseErr {
-	input := StructAny(data)
+	input := structAny(data)
 	p := i.object.promiseErr()
 	p.do(func() Chain {
-		primaryTuple := input.Primary(i.object)
+		primaryTuple := input.getPrimary(i.object)
 		err := i.Write(p.tr, primaryTuple, input, nil)
 		if err != nil {
 			return p.fail(err)

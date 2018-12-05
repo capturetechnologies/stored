@@ -64,6 +64,6 @@ func (s *Slice) Each(cb func(item interface{})) {
 func (s *Slice) fillFieldData(field *Field, indexData [][]byte) {
 	for k, value := range s.values {
 		data := indexData[k]
-		value.data[field.Name] = field.ToInterface(data)
+		value.raw[field.Name] = data
 	}
 }

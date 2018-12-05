@@ -16,11 +16,16 @@ func init() { // init database
     // no "return" needed, if db will wake up, client library will catch it up
   }
   db := cluster.Directory("test")
-  dbUser = db.Object("user", User{})
-  dbChat = db.Object("chat", Chat{})
-  dbUserChat = dbUser.N2N(dbChat)
+  user := db.Object("user", User{})
+  chat := db.Object("chat", Chat{})
+  dbUserChat = user.N2N(chat)
+  dbUser = user.Done() // finish object
+  dbChat = chat.Done()
 }
 ```
+It is required to create variable for each database object. This may seems like unnecessary
+code but this approach allowes you to have much more control over your source code. For
+example it makes easy to find all usage of specific object in your codebase.
 
 All the steps will be described below:
 #### Connect to DB
@@ -52,17 +57,17 @@ List of options available:
 Objects is a main workhorse of stored FoundationDB layer.
 You should init objects for all the objects in your application at the initialization part of application.
 ```Go
-dbUser = db.Object("user", User{}) // User could be any struct in your project
+user := db.Object("user", User{}) // User could be any struct in your project
 ```
 
 #### Primary keys
 Alternative to setting primary in struct define annotation is setting it directly.
 ```Go
-dbUser.Primary("id")
+user.Primary("id")
 ```
 Primary index could be multiple, for example:
 ```Go
-dbUser.Primary("chat_id", "message_id")
+user.Primary("chat_id", "message_id")
 ```
 In this case the combination of values will be the primary key. Fields order should not change.
 
@@ -74,7 +79,7 @@ Since int64 is not precise enough to completely illuminate collisions, if field 
 moment of Add STORED will check that no other key with such ID presented.
 
 ```Go
-dbUser.IDDate("id") // field id should be int64 or uint64
+user.IDDate("id") // field id should be int64 or uint64
 ```
 
 #### IDRandom
@@ -83,7 +88,7 @@ Since int64 is not precise enough to completely illuminate collisions, if field 
 moment of Add STORED will check that no other key with such ID presented.
 
 ```Go
-dbUser.IDRandom("id") // field id should be int64 or uint64
+user.IDRandom("id") // field id should be int64 or uint64
 ```
 
 #### AutoIncrement
@@ -95,7 +100,7 @@ of transactions you should not use this options when there are more than 100 Add
 
 Any key could be setup as autoincremented.
 ```Go
-dbUser.AutoIncrement("id")
+user.AutoIncrement("id")
 ```
 this way the value of this field will be set automaticly if **Add** `dbUser.Add(&user)` method triggered.
 
@@ -103,17 +108,17 @@ this way the value of this field will be set automaticly if **Add** `dbUser.Add(
 **Unique** creates unique index. You could fetch document directly using this index.
 *Add* and *Set* methods would fail if other item with same unique index presented.
 ```Go
-dbUser.Unique("login")
+user.Unique("login")
 ```
 **Index** creates regular index. Could be many rows with this index. You are able to fetch first row or list of rows.
 ```Go
-dbUser.Index("login")
+user.Index("login")
 ```
 
 #### Relations
 **N2N** is the most usefull type of relations between database objects. N2N represents *many* to *many* type of connection.
 ```Go
-dbUserChat := dbUser.N2N(dbChat)
+dbUserChat := user.N2N(chat)
 ```
 In this example **dbUserChat** represents relation when any user has unlimited amount of connected chats and any chat has
 unlimited amount of connected users. Also it is available to set any data value to each connection (user to chat and chat to user)
@@ -137,13 +142,13 @@ err := dbUser.Add(&user).Err() // after this user.ID will be 1
 #### Get data by primary ID
 You could use method Get to fetch any object from stored by primary key
 ```Go
-user := User{}
-err := dbUser.Get(1).Scan(&user)
+user := User{1}
+err := dbUser.Get(&user).Err()
 ```
 Also you could perform multiget. This way a lot of items will be requested simultaneously
 ```Go
-users := []User{}
-err := dbUser.MultiGet([]int64{1,2,3,4}).ScanAll(&users)
+users := []*User{&User{1},&User{2},&User{3},&User{4}}
+err := dbUser.MultiGet(users).Err()
 ```
 
 #### Get data by index

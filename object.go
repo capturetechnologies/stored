@@ -3,7 +3,6 @@ package stored
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -114,6 +113,9 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			if tag.Primary {
 				o.setPrimary(tag.Name)
 			}
+			if tag.mutable {
+				field.mutable = true
+			}
 			if tag.UnStored {
 				field.UnStored = true
 			} else {
@@ -124,10 +126,27 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 	return
 }
 
+func (o *Object) editSlice(sliceObjectPtr interface{}) []*Struct {
+	value := reflect.ValueOf(sliceObjectPtr)
+	if value.Kind() != reflect.Slice {
+		panic("should be slice")
+	}
+
+	values := []*Struct{}
+
+	for i := 0; i < value.Len(); i++ {
+		row := value.Index(i)
+		values = append(values, &Struct{
+			value:    row.Elem(),
+			editable: true,
+		})
+	}
+	return values
+}
+
 func (o *Object) wrapRange(needed []*needObject) *Slice {
 	if len(needed) == 0 {
 		return &Slice{values: []*Value{}} // empty slice instead of error
-		//return &Slice{err: ErrNotFound}
 	}
 	slice := Slice{}
 	for _, need := range needed {
@@ -140,53 +159,12 @@ func (o *Object) wrapRange(needed []*needObject) *Slice {
 	return &slice
 }
 
-/*func (o *Object) wrapRange(rowsList [][]fdb.KeyValue, dataKeys []subspace.Subspace) *Slice {
-	if len(rowsList) == 0 {
-		return &Slice{values: []*Value{}} // empty slice instead of error
-		//return &Slice{err: ErrNotFound}
-	}
-	slice := Slice{}
-	for k, rows := range rowsList {
-		key := dataKeys[k]
-		value := Value{
-			object: o,
-		}
-		value.FromKeyValue(key, rows)
-		slice.Append(&value)
-	}
-	return &slice
-}*/
-
-func (o *Object) addFieldIndex(fieldKey, indexKey string) *Index {
-	field, ok := o.fields[fieldKey]
-	if !ok {
-		panic("Object " + o.name + " has no key «" + fieldKey + "» could not set index")
-	}
-	index := o.addIndex(indexKey)
-	index.field = field
-	return index
-}
-
-func (o *Object) addIndex(indexKey string) *Index {
-	_, ok := o.indexes[indexKey]
-	if ok {
-		panic("Object " + o.name + " already has index «" + indexKey + "»")
-	}
-	indexSubspace, err := o.dir.CreateOrOpen(o.db, []string{indexKey}, nil)
-	if err != nil {
-		panic(err)
-	}
-	index := Index{
-		Name:   indexKey,
-		object: o,
-		dir:    indexSubspace,
-	}
-	o.indexes[indexKey] = &index
-	return &index
-}
-
 func (o *Object) panic(text string) {
 	panic("Stored error, object " + o.name + ": " + text)
+}
+
+func (o *Object) log(text string) {
+	fmt.Println("Object «" + o.name + "»: " + text)
 }
 
 // field return field using name, panic an error if no field presented
@@ -233,8 +211,8 @@ func (o *Object) getPrimaryTuple(objOrID interface{}) tuple.Tuple {
 	return res
 }
 
-// GetPrimaryField return primary field of an STORED object
-func (o *Object) GetPrimaryField() *Field {
+// getPrimaryField return primary field of an STORED object
+func (o *Object) getPrimaryField() *Field {
 	if o.primaryKey == "" {
 		panic("Object " + o.name + " has no primary key")
 	}
@@ -243,104 +221,6 @@ func (o *Object) GetPrimaryField() *Field {
 		panic("Object " + o.name + " has invalid primary field")
 	}
 	return field
-}
-
-// Primary sets primary field in case it wasnot set with annotations
-func (o *Object) Primary(names ...string) *Object {
-	for _, name := range names {
-		_, ok := o.fields[name]
-		if !ok {
-			panic("Object " + o.name + " has no key «" + name + "» could not set primary")
-		}
-	}
-	o.setPrimary(names...)
-	return o
-}
-
-// IDDate is unique id generated using date as first part, this approach is usefull
-// if date index necessary too
-// field type should be int64
-func (o *Object) IDDate(fieldName string) *Object {
-	field, ok := o.fields[fieldName]
-	if !ok {
-		panic("Object " + o.name + " has no key «" + fieldName + "» could not set uuid")
-	}
-	field.SetID(GenIDDate)
-	return o
-}
-
-// IDRandom is unique id generated using random number, this approach is usefull
-// if you whant randomly distribute objects, and you do not whant to unveil data object
-func (o *Object) IDRandom(fieldName string) *Object {
-	field, ok := o.fields[fieldName]
-	if !ok {
-		panic("Object " + o.name + " has no key «" + fieldName + "» could not set uuid")
-	}
-	field.SetID(GenIDRandom)
-	return o
-}
-
-// AutoIncrement make defined field autoincremented before adding new objects
-//
-func (o *Object) AutoIncrement(name string) *Object {
-	field, ok := o.fields[name]
-	if !ok {
-		panic("Object " + o.name + " has no key «" + name + "» could not set autoincrement")
-	}
-	field.SetAutoIncrement()
-	return o
-}
-
-// Unique index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
-func (o *Object) Unique(key string) *Object {
-	index := o.addFieldIndex(key, key)
-	index.Unique = true
-
-	return o
-}
-
-// Index add an simple index for specific key
-func (o *Object) Index(key string) *Object {
-	o.addFieldIndex(key, key)
-	return o
-}
-
-// IndexGeo will add and geohash based index to allow geographicly search objects
-// geoPrecision 0 means full precision:
-// 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
-func (o *Object) IndexGeo(latKey string, longKey string, geoPrecision int) *IndexGeo {
-	index := o.addFieldIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
-	if geoPrecision < 1 || geoPrecision > 12 {
-		geoPrecision = 12
-	}
-	index.Geo = geoPrecision
-	field, ok := o.fields[longKey]
-	if !ok {
-		panic("Object " + o.name + " has no key «" + longKey + "» could not set index")
-	}
-	index.secondary = field
-	return &IndexGeo{index: index}
-}
-
-// IndexCustom add an custom index generated dynamicly using callback function
-// custom indexes in an general way to implement any index on top of it
-func (o *Object) IndexCustom(key string, cb func(object interface{}) Key) *Index {
-	index := o.addIndex(key)
-	index.handle = cb
-	return index
-}
-
-// Counter will count all objects with same value of passed fields
-func (o *Object) Counter(fieldNames ...string) *Counter {
-	fields := []*Field{}
-	for _, fieldName := range fieldNames {
-		field, ok := o.fields[fieldName]
-		if !ok {
-			panic("Object " + o.name + " has no key «" + fieldName + "» could not set counter")
-		}
-		fields = append(fields, field)
-	}
-	return counterNew(o, fields)
 }
 
 func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple tuple.Tuple, input, oldObject *Struct, addNew bool) error {
@@ -353,12 +233,12 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 	}
 
-	for k, field := range o.fields {
+	for _, field := range o.fields {
 		if field.UnStored {
 			continue
 		}
 		value := input.GetBytes(field)
-		tr.Set(sub.Pack(tuple.Tuple{k}), value)
+		tr.Set(field.getKey(sub), value)
 	}
 	for _, index := range o.indexes {
 		//fmt.Println("WRITE index", primaryTuple, input)
@@ -407,11 +287,11 @@ func (o *Object) promiseInt64() *Promise {
 }
 
 // Update writes data, only if row already exist
-func (o *Object) Update(data interface{}) *Promise {
-	input := StructAny(data)
-	p := o.promise()
+func (o *Object) Update(data interface{}) *PromiseErr {
+	input := structAny(data)
+	p := o.promiseErr()
 	p.do(func() Chain {
-		primaryTuple := input.Primary(o)
+		primaryTuple := input.getPrimary(o)
 
 		// delete all indexes data
 		sub := o.sub(primaryTuple)
@@ -429,13 +309,13 @@ func (o *Object) Update(data interface{}) *Promise {
 			if err != nil {
 				return p.fail(err)
 			}
-			object := StructAny(value.Interface())
+			object := structAny(value.Interface())
 
 			err = o.doWrite(p.tr, sub, primaryTuple, input, object, false)
 			if err != nil {
 				return p.fail(err)
 			}
-			return p.done(nil)
+			return p.ok()
 		}
 	})
 
@@ -443,11 +323,11 @@ func (o *Object) Update(data interface{}) *Promise {
 }
 
 // Set writes data, would return error if primary key is empty
-func (o *Object) Set(data interface{}) *Promise {
-	input := StructAny(data)
-	p := o.promise()
+func (o *Object) Set(objectPtr interface{}) *PromiseErr {
+	input := structAny(objectPtr)
+	p := o.promiseErr()
 	p.do(func() Chain {
-		primaryTuple := input.Primary(o)
+		primaryTuple := input.getPrimary(o)
 
 		// delete all indexes data
 		sub := o.sub(primaryTuple)
@@ -465,7 +345,7 @@ func (o *Object) Set(data interface{}) *Promise {
 				if err != nil {
 					return p.fail(err)
 				}
-				oldObject = StructAny(value.Interface())
+				oldObject = structAny(value.Interface())
 			} else {
 				addNew = true
 			}
@@ -474,7 +354,7 @@ func (o *Object) Set(data interface{}) *Promise {
 			if err != nil {
 				p.fail(err)
 			}
-			return p.done(nil)
+			return p.ok()
 		}
 	})
 
@@ -482,19 +362,20 @@ func (o *Object) Set(data interface{}) *Promise {
 }
 
 // Subspace return subspace using object or interface
-func (o *Object) Subspace(objOrID interface{}) subspace.Subspace {
+func (o *Object) subspace(objOrID interface{}) subspace.Subspace {
 	primaryTuple := o.getPrimaryTuple(objOrID)
 	return o.primary.Sub(primaryTuple...)
 }
 
 // IncField increment field
 // does not implement indexes in the moment
-func (o *Object) IncField(objOrID interface{}, fieldName string, incVal interface{}) *Promise {
+// moved to IncFieldUnsafe
+func (o *Object) IncFieldUnsafe(objOrID interface{}, fieldName string, incVal interface{}) *PromiseErr {
 	field := o.field(fieldName)
 	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
 	primaryTuple := o.getPrimaryTuple(objOrID)
 	sub := o.primary.Sub(primaryTuple...)
-	p := o.promise()
+	p := o.promiseErr()
 	p.do(func() Chain {
 		incKey := sub.Pack(tuple.Tuple{field.Name})
 		val, err := field.ToBytes(incVal)
@@ -507,18 +388,19 @@ func (o *Object) IncField(objOrID interface{}, fieldName string, incVal interfac
 				i.Write(p.tr, primaryTuple, input, oldObject)
 			}
 		}*/
-		return p.done(nil)
+		return p.ok()
 	})
 	return p
 }
 
 // IncGetField increment field and return new value
+// moved to IncFieldAtomic
 func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal interface{}) *Promise {
 	field := o.field(fieldName)
 
 	p := o.promise()
 	p.do(func() Chain {
-		sub := o.Subspace(objOrID)
+		sub := o.subspace(objOrID)
 		incKey := sub.Pack(tuple.Tuple{field.Name})
 		val, err := field.ToBytes(incVal)
 		if err != nil {
@@ -557,12 +439,13 @@ func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal inter
 }
 
 // UpdateField updates object field via callback with old value
+// moved to ChangeField
 func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback func(value interface{}) (interface{}, error)) *Promise {
 	field := o.field(fieldName)
 
 	p := o.promise()
 	p.do(func() Chain {
-		sub := o.Subspace(objOrID)
+		sub := o.subspace(objOrID)
 		key := sub.Pack(tuple.Tuple{field.Name})
 		fieldGet := p.tr.Get(key)
 		return func() Chain {
@@ -586,41 +469,16 @@ func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback fun
 		}
 	})
 	return p
-
-	/*sub := o.Subspace(objOrID)
-	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		key := sub.Pack(tuple.Tuple{field.Name})
-		val, err := tr.Get(key).Get()
-		if err != nil {
-			return nil, err
-		}
-		if val == nil {
-			return nil, ErrNotFound
-		}
-		newValue, err := callback(field.ToInterface(val))
-		if err != nil {
-			return nil, err
-		}
-		bytesValue, err := field.ToBytes(newValue)
-		if err != nil {
-			return nil, err
-		}
-		tr.Set(key, bytesValue)
-		return
-	})
-	return err*/
 }
 
 // SetField sets any value to requested field
-func (o *Object) SetField(objOrID interface{}, fieldName string, value interface{}) *Promise {
+func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
+	input := structAny(objectPtr)
 	field := o.field(fieldName)
-	p := o.promise()
+	p := o.promiseErr()
 	p.do(func() Chain {
-		bytesValue, err := field.ToBytes(value)
-		if err != nil {
-			return p.fail(err)
-		}
-		sub := o.Subspace(objOrID)
+		bytesValue := input.GetBytes(field)
+		sub := input.getSubspace(o)
 		key := sub.Pack(tuple.Tuple{field.Name})
 		fieldGet := p.tr.Get(key)
 
@@ -633,29 +491,29 @@ func (o *Object) SetField(objOrID interface{}, fieldName string, value interface
 				return p.fail(ErrNotFound)
 			}
 			p.tr.Set(key, bytesValue)
-			return p.done(nil)
+			return p.ok()
 		}
 	})
 	return p
 }
 
 // Add writes data even in primary key is empty, by setting it. Take a look at autoincrement tag
-func (o *Object) Add(data interface{}) *Promise {
-	input := StructEditable(data)
-	p := o.promise()
+func (o *Object) Add(data interface{}) *PromiseErr {
+	input := structEditable(data)
+	p := o.promiseErr()
 	p.do(func() Chain {
 		for _, field := range o.fields {
 			if field.AutoIncrement {
 				incKey := o.miscDir.Pack(tuple.Tuple{"ai", field.Name})
 				p.tr.Add(incKey, field.packed.Plus())
 				autoIncrementValue := p.tr.Get(incKey).MustGet()
-				input.Set(field, autoIncrementValue)
+				input.setField(field, autoIncrementValue)
 			} else if field.GenID != 0 {
-				input.Set(field, field.GenerateID())
+				input.setField(field, field.GenerateID())
 			}
 		}
 
-		primaryTuple := input.Primary(o)
+		primaryTuple := input.getPrimary(o)
 		sub := o.primary.Sub(primaryTuple...)
 
 		isSet := p.tr.GetKey(fdb.FirstGreaterThan(sub))
@@ -672,19 +530,19 @@ func (o *Object) Add(data interface{}) *Promise {
 			if err != nil {
 				return p.fail(err)
 			}
-			return nil
+			return p.ok()
 		}
 	})
 	return p
 }
 
 // Delete removes data
-func (o *Object) Delete(objOrID interface{}) *Promise {
+func (o *Object) Delete(objOrID interface{}) *PromiseErr {
 	//sub := o.Subspace(objOrID)
 	primaryTuple := o.getPrimaryTuple(objOrID)
 	sub := o.primary.Sub(primaryTuple...)
 
-	p := o.promise()
+	p := o.promiseErr()
 	p.do(func() Chain {
 		needed := o.need(p.tr, sub)
 		//res := needObject(p.tr, sub)
@@ -698,7 +556,7 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 			if err != nil {
 				return p.fail(err)
 			}
-			object := StructAny(value.Interface())
+			object := structAny(value.Interface())
 
 			// remove object key
 			start, end := sub.FDBRangeKeys()
@@ -721,14 +579,17 @@ func (o *Object) Delete(objOrID interface{}) *Promise {
 }
 
 // GetBy fetch one row using index bye name or name of the index field
-func (o *Object) GetBy(indexKey string, data interface{}) *PromiseValue {
+func (o *Object) GetBy(objectPtr interface{}, indexKey string) *PromiseErr {
+	input := structEditable(objectPtr)
+
 	index, ok := o.indexes[indexKey]
 	if !ok {
-		panic("Object " + o.name + ", index «" + indexKey + "» is undefined")
+		o.panic("index «" + indexKey + "» is undefined")
 	}
 
-	p := o.promiseValue()
+	p := o.promiseErr()
 	p.doRead(func() Chain {
+		data := input.Get(index.field)
 		sub, err := index.getPrimary(p.readTr, data)
 		if err != nil {
 			return p.fail(err)
@@ -752,34 +613,32 @@ func (o *Object) GetBy(indexKey string, data interface{}) *PromiseValue {
 				object: o,
 			}
 			value.FromKeyValue(sub, rows)
-			return p.done(&value)
+			input.Fill(o, &value)
+			return p.done(nil)
 		}
 	})
 	return p
 }
 
 // MultiGet fetch list of objects using primary id
-func (o *Object) MultiGet(data interface{}) *Slice {
-	dataKeys := o.sliceToKeys(data)
-	resp, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		tr = tr.Snapshot()
-		needed := make([]*needObject, len(dataKeys))
-		//needed := []*needObject{}
-		for k, v := range dataKeys { // iterate each key
-			//needed = append(needed, o.needSub(tr, v))
-			needed[k] = o.need(tr, v)
+func (o *Object) MultiGet(sliceObjectPtr interface{}) *PromiseErr {
+	inputs := o.editSlice(sliceObjectPtr)
+	p := o.promiseErr()
+	p.doRead(func() Chain {
+		needed := map[int]*needObject{}
+		for k, input := range inputs {
+			needed[k] = o.need(p.readTr, input.getSubspace(o))
 		}
-		return o.wrapRange(needed), nil
-		/*kv, err := FetchRange(tr, needed)
-		if err != nil {
-			return nil, err
+		for k, input := range inputs {
+			value, err := needed[k].fetch()
+			if err != nil {
+				return p.fail(err)
+			}
+			input.Fill(o, value)
 		}
-		return o.wrapRange(kv, dataKeys), nil*/
+		return p.done(nil)
 	})
-	if err != nil {
-		return &Slice{err: err}
-	}
-	return resp.(*Slice)
+	return p
 }
 
 func (o *Object) valueFromRange(sub subspace.Subspace, res fdb.RangeResult) (*Value, error) {
@@ -798,20 +657,18 @@ func (o *Object) valueFromRange(sub subspace.Subspace, res fdb.RangeResult) (*Va
 }
 
 // Get fetch object using primary id
-func (o *Object) Get(objOrID interface{}) *PromiseValue {
-	p := o.promiseValue()
+func (o *Object) Get(objectPtr interface{}) *PromiseErr {
+	input := structEditable(objectPtr)
+	p := o.promiseErr()
 	p.doRead(func() Chain {
-		sub := o.getPrimarySub(objOrID)
-
-		//needed := needObject(p.tr, sub)
-		needed := o.need(p.readTr, sub)
-
+		needed := o.need(p.readTr, input.getSubspace(o))
 		return func() Chain {
 			res, err := needed.fetch()
 			if err != nil {
 				return p.fail(err)
 			}
-			return p.done(res)
+			input.Fill(o, res)
+			return p.done(nil)
 		}
 	})
 	return p
@@ -840,7 +697,7 @@ func (o *Object) sliceToKeys(data interface{}) []subspace.Subspace {
 	if o.multiplePrimary {
 		panic("multiget for multiple primary not implemented yet")
 	}
-	primaryField := o.GetPrimaryField()
+	primaryField := o.getPrimaryField()
 	var dataKeys []subspace.Subspace
 	switch primaryField.Kind {
 	case reflect.Int32:
@@ -916,15 +773,6 @@ func (o *Object) sliceToKeys(data interface{}) []subspace.Subspace {
 	return dataKeys
 }
 
-// N2N Creates object to object relation between current object and other one.
-// Other words it represents relations when unlimited number of host objects connected to unlimited
-// amount of client objects
-func (o *Object) N2N(client *Object) *Relation {
-	rel := Relation{}
-	rel.init(RelationN2N, o, client)
-	return &rel
-}
-
 // Clear clears all info in object storage
 func (o *Object) Clear() error {
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
@@ -948,6 +796,10 @@ func (o *Object) Clear() error {
 		}
 		for _, index := range o.indexes {
 			start, end = index.dir.FDBRangeKeys()
+			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		}
+		for _, counter := range o.counters {
+			start, end = counter.dir.FDBRangeKeys()
 			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 		}
 		return

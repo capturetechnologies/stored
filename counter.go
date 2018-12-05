@@ -39,7 +39,7 @@ func (c *Counter) decrement(tr fdb.Transaction, input *Struct) {
 
 // Get will get counter data
 func (c *Counter) Get(data interface{}) *Promise {
-	input := StructAny(data)
+	input := structAny(data)
 	p := c.object.promiseInt64()
 	p.doRead(func() Chain {
 		t := input.getTuple(c.fields)

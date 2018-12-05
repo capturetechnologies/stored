@@ -250,9 +250,13 @@ func (p *Packed) doDecode(reader *byteReader, value reflect.Value) (err error) {
 		if l, err = binary.ReadUvarint(reader); err != nil {
 			return
 		}
-		buf := make([]byte, l)
-		_, err = reader.Read(buf)
-		value.SetString(string(buf))
+		if l == 0 {
+			value.SetString("")
+		} else {
+			buf := make([]byte, l)
+			_, err = reader.Read(buf)
+			value.SetString(string(buf))
+		}
 
 	case reflect.Bool:
 		var out byte

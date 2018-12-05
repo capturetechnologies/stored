@@ -10,11 +10,13 @@ import (
 
 type valueRaw map[string][]byte
 
+// Value is representation of the fetched raw object from the db
 type Value struct {
 	object *Object
 	fetch  func()
-	data   map[string]interface{}
-	err    error
+	//data   map[string]interface{}
+	raw valueRaw
+	err error
 }
 
 func (v *Value) get() {
@@ -25,7 +27,10 @@ func (v *Value) get() {
 }
 
 func (v *Value) fromRaw(raw valueRaw) {
-	v.data = map[string]interface{}{}
+	v.raw = raw
+
+	//todelete
+	/*v.data = map[string]interface{}{}
 	for fieldName, binaryValue := range raw {
 		field, ok := v.object.fields[fieldName]
 
@@ -33,39 +38,50 @@ func (v *Value) fromRaw(raw valueRaw) {
 			continue
 		}
 		v.data[fieldName] = field.ToInterface(binaryValue)
-	}
+	}*/
 }
 
 // FromKeyValue pasrses key value from foundationdb
 func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
-	v.data = map[string]interface{}{}
+	v.raw = valueRaw{}
 	for _, row := range rows {
 		key, err := sub.Unpack(row.Key)
-		//key, err := tuple.Unpack(row.Key)
 		if err != nil || len(key) < 1 {
 			fmt.Println("key in invalid", err)
 			continue
 		}
+		fieldName, ok := key[0].(string)
+		if !ok {
+			fmt.Println("field is not string")
+			continue
+		}
+		v.raw[fieldName] = row.Value
+	}
 
+	// todelete
+	/*v.data = map[string]interface{}{}
+	for _, row := range rows {
+		key, err := sub.Unpack(row.Key)
+		if err != nil || len(key) < 1 {
+			fmt.Println("key in invalid", err)
+			continue
+		}
 		fieldName, ok := key[0].(string)
 		if !ok {
 			fmt.Println("field is not string")
 			continue
 		}
 		field, ok := v.object.fields[fieldName]
-
 		if !ok {
 			fmt.Println("SKIP FIELD", fieldName)
 			continue
 		}
-
-		//fmt.Println("kv get:", fieldName, row.Value, field.ToInterface(row.Value))
 		v.data[fieldName] = field.ToInterface(row.Value)
-	}
+	}*/
 }
 
 // Scan fills object with data from value
-func (v *Value) Scan(obj interface{}) error {
+func (v *Value) Scan(objectPtr interface{}) error {
 	if v.fetch != nil {
 		v.fetch()
 		v.fetch = nil
@@ -73,7 +89,10 @@ func (v *Value) Scan(obj interface{}) error {
 	if v.err != nil {
 		return v.err
 	}
-	object := reflect.ValueOf(obj).Elem()
+
+	value := structEditable(objectPtr)
+	value.Fill(v.object, v)
+	/*object := reflect.ValueOf(objectPtr).Elem()
 	for key, val := range v.data {
 		field, ok := v.object.fields[key]
 		if !ok {
@@ -88,7 +107,7 @@ func (v *Value) Scan(obj interface{}) error {
 		interfaceValue := reflect.ValueOf(val)
 
 		objField.Set(interfaceValue)
-	}
+	}*/
 	return nil
 }
 
@@ -103,7 +122,7 @@ func (v *Value) Reflect() (reflect.Value, error) {
 		return value, v.err
 	}
 	value = value.Elem()
-	for key, val := range v.data {
+	for key, binaryValue := range v.raw {
 		field, ok := v.object.fields[key]
 		if !ok {
 			continue
@@ -113,6 +132,8 @@ func (v *Value) Reflect() (reflect.Value, error) {
 			fmt.Println("Could not set object", key)
 			continue
 		}
+
+		val := field.ToInterface(binaryValue)
 		interfaceValue := reflect.ValueOf(val)
 		objField.Set(interfaceValue)
 	}

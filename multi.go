@@ -14,6 +14,7 @@ type multiNeed struct {
 	res      *Value
 }
 
+// MultiChain allow to select multiple objects simultaniusly
 type MultiChain struct {
 	db          fdb.Database
 	needed      map[string]multiNeed
@@ -37,7 +38,7 @@ func (m *MultiChain) execute() {
 				needObj.res.err = err
 			} else {
 				needObj.res.object = value.object
-				needObj.res.data = value.data
+				needObj.res.raw = value.raw
 			}
 		}
 		return nil, nil
@@ -45,8 +46,9 @@ func (m *MultiChain) execute() {
 	m.unprocessed = 0
 }
 
+// Need means this object should be fetched
 func (m *MultiChain) Need(o *Object, objOrID interface{}) *Value {
-	sub := o.Subspace(objOrID)
+	sub := o.subspace(objOrID)
 	needed := multiNeed{
 		multi:    m,
 		object:   o,
@@ -65,8 +67,9 @@ func (m *MultiChain) Need(o *Object, objOrID interface{}) *Value {
 	return &val
 }
 
+// Get wiil get all objects with this object
 func (m *MultiChain) Get(o *Object, objOrID interface{}) *Value {
-	sub := o.Subspace(objOrID)
+	sub := o.subspace(objOrID)
 	needed, ok := m.needed[string(sub.Bytes())]
 	if !ok {
 		return &Value{err: errors.New("multiget object was not needed")}

@@ -9,6 +9,8 @@ import (
 
 	"github.com/capturetechnologies/stored/packed"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
@@ -23,6 +25,7 @@ type Field struct {
 	SubKind       reflect.Kind
 	Type          reflect.StructField
 	Value         reflect.Value
+	mutable       bool
 	AutoIncrement bool
 	GenID         GenIDType // type of ID autogeneration, IDDate, IDRandom
 	packed        *packed.Packed
@@ -37,7 +40,7 @@ func (f *Field) init() {
 type Tag struct {
 	Name          string
 	Primary       bool
-	Mutable       bool
+	mutable       bool
 	AutoIncrement bool
 	UnStored      bool // means this field doesn't stored inside main object data
 }
@@ -65,7 +68,7 @@ func (f *Field) ParseTag() *Tag {
 			case "primary":
 				tag.Primary = true
 			case "mutable":
-				tag.Mutable = true
+				tag.mutable = true
 			case "autoincrement":
 				tag.AutoIncrement = true
 			default:
@@ -134,11 +137,15 @@ func (f *Field) ToBytes(val interface{}) ([]byte, error) {
 func (f *Field) tupleElement(val interface{}) tuple.TupleElement {
 	if f.Kind == reflect.Uint8 { // byte stored as byte array
 		return []byte{val.(byte)}
-	} else {
-		return val
 	}
+	return val
 }
 
+func (f *Field) getKey(sub subspace.Subspace) fdb.Key {
+	return sub.Pack(tuple.Tuple{f.Name})
+}
+
+// ToInterface decodes field value
 func (f *Field) ToInterface(obj []byte) interface{} {
 	val := f.packed.DecodeToInterface(obj)
 	return val

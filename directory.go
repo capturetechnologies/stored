@@ -55,13 +55,15 @@ func (d *Directory) init() {
 }
 
 // Object declares new object for document layer
-func (d *Directory) Object(name string, schemaObj interface{}) (ret *Object) {
-	ret = &Object{}
-	ret.init(name, &d.Cluster.db, d, schemaObj)
+func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
+	object := &Object{}
+	object.init(name, &d.Cluster.db, d, schemaObj)
 	d.mux.Lock()
-	d.objects[name] = ret
+	d.objects[name] = object
 	d.mux.Unlock()
-	return
+	return &ObjectBuilder{
+		object: object,
+	}
 }
 
 // Clear removes all content inside directory
@@ -87,3 +89,13 @@ func (d *Directory) Multi() *MultiChain {
 	mc.init()
 	return &mc
 }
+
+// Build will returen db object ready to operate
+/*func (d *Directory) Build() *Database {
+	db := Database{
+		objects: d.objects,
+		cluster: d.Cluster,
+	}
+	db.init()
+	return &db
+}*/

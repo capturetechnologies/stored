@@ -10,29 +10,70 @@ import (
 
 // Struct used for work with input structure
 type Struct struct {
-	object reflect.Value
+	editable bool
+	value    reflect.Value
 }
 
-// Set sets field value using bytes
-func (s *Struct) Set(field *Field, data []byte) {
-	objField := s.object.Field(field.Num)
+// setField sets field value using bytes
+func (s *Struct) setField(field *Field, data []byte) {
+	objField := s.value.Field(field.Num)
 	err := field.packed.DecodeToValue(data, objField)
 	if err != nil {
-		fmt.Println("Decode to value failed", err)
+		fmt.Println("Decode to value failed", field.Name, field.object.name, len(data), err)
 	}
-	//interfaceValue := reflect.ValueOf(field.ToInterface(data))
-	//objField.Set(interfaceValue)
+}
+
+// incField increment field value using interface value
+func (s *Struct) incField(field *Field, toInc interface{}) {
+	objField := s.value.Field(field.Num)
+	inter := objField.Interface()
+	switch field.Kind {
+	case reflect.Int:
+		s.setFieldValue(objField, inter.(int)+toInc.(int))
+	case reflect.Uint:
+		s.setFieldValue(objField, inter.(uint)+toInc.(uint))
+	case reflect.Int32:
+		s.setFieldValue(objField, inter.(int32)+toInc.(int32))
+	case reflect.Uint32:
+		s.setFieldValue(objField, inter.(uint32)+toInc.(uint32))
+	case reflect.Int64:
+		s.setFieldValue(objField, inter.(int64)+toInc.(int64))
+	case reflect.Uint64:
+		s.setFieldValue(objField, inter.(uint64)+toInc.(uint64))
+	default:
+		panic("field " + field.Name + " is not incrementable")
+	}
+}
+
+func (s *Struct) setFieldValue(objField reflect.Value, value interface{}) {
+	objField.Set(reflect.ValueOf(value))
+}
+
+// Fill will use data inside value object to fill struct
+func (s *Struct) Fill(o *Object, v *Value) {
+	if !s.editable {
+		panic("attempt to change readonly struct")
+	}
+	for fieldName, binaryValue := range v.raw {
+		field, ok := o.fields[fieldName]
+		if ok {
+			s.setField(field, binaryValue)
+		} else {
+			//o.log("unknown field «" + fieldName + "», skipping")
+			//nothing to worry about
+		}
+	}
 }
 
 // Get return field as interface
 func (s *Struct) Get(field *Field) interface{} {
-	value := s.object.Field(field.Num)
+	value := s.value.Field(field.Num)
 	return value.Interface()
 }
 
 // GetBytes return field as byteSlice
 func (s *Struct) GetBytes(field *Field) []byte {
-	value := s.object.Field(field.Num)
+	value := s.value.Field(field.Num)
 
 	res, err := field.packed.Encode(value.Interface())
 	if err != nil {
@@ -59,8 +100,8 @@ func (s *Struct) GetBytes(field *Field) []byte {
 	return val*/
 }
 
-// Primary get primary tuple based on input object
-func (s *Struct) Primary(object *Object) tuple.Tuple {
+// getPrimary get primary tuple based on input object
+func (s *Struct) getPrimary(object *Object) tuple.Tuple {
 	if object.primaryFields == nil {
 		object.panic("primary key is undefined")
 	}
@@ -76,33 +117,38 @@ func (s *Struct) getTuple(fields []*Field) tuple.Tuple {
 	return tuple
 }
 
-// Subspace get subspace with primary keys for parst object
-func (s *Struct) Subspace(object *Object) subspace.Subspace {
-	primaryTuple := s.Primary(object)
+// getSubspace get subspace with primary keys for parst object
+func (s *Struct) getSubspace(object *Object) subspace.Subspace {
+	primaryTuple := s.getPrimary(object)
 	return object.primary.Sub(primaryTuple...)
 }
 
-// StructEditable return Struct object with check for pointer (could be editable)
-func StructEditable(data interface{}) *Struct {
-	object := reflect.ValueOf(data)
-	if object.Kind() != reflect.Ptr {
+func (s *Struct) getType() reflect.Type {
+	return reflect.Indirect(s.value).Type()
+}
+
+// structEditable return Struct object with check for pointer (could be editable)
+func structEditable(data interface{}) *Struct {
+	value := reflect.ValueOf(data)
+	if value.Kind() != reflect.Ptr {
 		panic("you should pass link to the object")
 	}
-	object = object.Elem()
+	value = value.Elem() // unpointer, interface still
 	input := Struct{
-		object: object,
+		value:    value,
+		editable: true,
 	}
 	return &input
 }
 
-// StructAny return Struct object from any sruct
-func StructAny(data interface{}) *Struct {
-	object := reflect.ValueOf(data)
-	if object.Kind() == reflect.Ptr {
-		object = object.Elem()
+// structAny return Struct object from any sruct
+func structAny(data interface{}) *Struct {
+	value := reflect.ValueOf(data)
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
 	}
 	input := Struct{
-		object: object,
+		value: value,
 	}
 	return &input
 }

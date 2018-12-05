@@ -57,6 +57,7 @@ func (r *Relation) panic(text string) {
 	panic("relation between «" + r.host.name + "» and «" + r.client.name + "»: " + text)
 }
 
+// Counter will start count objects count within relation
 func (r *Relation) Counter(on bool) {
 	r.counter = on
 }
@@ -572,12 +573,15 @@ func (r *Relation) GetClientData(hostOrID interface{}, clientOrID interface{}) *
 			if val == nil { // not exists increment here
 				return p.fail(ErrNotFound)
 			}
-			data := map[string]interface{}{}
-			valueInterface := r.clientDataField.ToInterface(val)
-			data[r.clientDataField.Name] = valueInterface
+			raw := valueRaw{}
+			//data := map[string]interface{}{}
+			//valueInterface := r.clientDataField.ToInterface(val)
+			//data[r.clientDataField.Name] = valueInterface
+			raw[r.clientDataField.Name] = val
+
 			value := Value{
 				object: r.client,
-				data:   data,
+				raw:    raw,
 			}
 			return p.done(&value)
 		}
