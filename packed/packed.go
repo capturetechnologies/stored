@@ -185,7 +185,7 @@ func (p *Packed) doDecode(reader *byteReader, value reflect.Value) (err error) {
 	}*/
 
 	if !value.CanAddr() {
-		//fmt.Println("this pointer could not decoded", string(debug.Stack())
+		//fmt.Println("this pointer could not decoded", string(debug.Stack()))
 		fmt.Println("this pointer could not decoded")
 		return errors.New("this pointer could not decoded")
 	}

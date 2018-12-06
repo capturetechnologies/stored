@@ -17,6 +17,27 @@ type Struct struct {
 // setField sets field value using bytes
 func (s *Struct) setField(field *Field, data []byte) {
 	objField := s.value.Field(field.Num)
+	if objField.Kind() == reflect.Ptr {
+		if objField.IsNil() {
+			if len(data) == 0 {
+				return
+			}
+			fmt.Println("Pointer problem fetched", len(data), string(data))
+			fmt.Println("is NIL here")
+			/*t := p.Value.Type()
+			var isPointer bool
+			if t.Kind() == reflect.Ptr {
+				if len(data) == 0 {
+					return reflect.Zero(t).Interface()
+				}
+				t = t.Elem()
+				isPointer = true
+			}
+			value := reflect.New(t)
+			objField.Set(value.Pointer())*/
+		}
+
+	}
 	err := field.packed.DecodeToValue(data, objField)
 	if err != nil {
 		fmt.Println("Decode to value failed", field.Name, field.object.name, len(data), err)

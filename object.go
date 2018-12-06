@@ -632,7 +632,9 @@ func (o *Object) MultiGet(sliceObjectPtr interface{}) *PromiseErr {
 		for k, input := range inputs {
 			value, err := needed[k].fetch()
 			if err != nil {
-				return p.fail(err)
+				fmt.Println("could not fetch user", err)
+				continue
+				//return p.fail(err)
 			}
 			input.Fill(o, value)
 		}

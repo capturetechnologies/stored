@@ -15,6 +15,7 @@ type Query struct {
 	index   *Index
 	primary tuple.Tuple
 	from    tuple.Tuple
+	to      tuple.Tuple
 	next    struct {
 		from    tuple.Tuple // fills after first slice of data was scanned
 		started bool
@@ -84,6 +85,24 @@ func (q *Query) From(values ...interface{}) *Query {
 			q.from = append(q.from, []byte{enc})
 		default:
 			q.from = append(q.from, v)
+		}
+	}
+	return q
+}
+
+// To sets the part of primary key which returning list should be ended
+// primary key part passed to List param should be excluded
+func (q *Query) To(values ...interface{}) *Query {
+	if len(values) == 0 {
+		return q
+	}
+	q.to = tuple.Tuple{}
+	for _, v := range values {
+		switch enc := v.(type) {
+		case byte:
+			q.to = append(q.to, []byte{enc})
+		default:
+			q.to = append(q.to, v)
 		}
 	}
 	return q

@@ -124,6 +124,13 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		} else {
 			start = sub.Pack(q.from)
 		}
+		if q.to != nil {
+			if q.reverse {
+				start = sub.Pack(q.to)
+			} else {
+				end = sub.Pack(q.to)
+			}
+		}
 	}
 
 	r := fdb.KeyRange{Begin: start, End: end}
