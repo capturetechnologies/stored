@@ -1,8 +1,6 @@
 package stored
 
 import (
-	"fmt"
-
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/mmcloughlin/geohash"
 )
@@ -34,7 +32,7 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 	}
 	neighbors := geohash.Neighbors(hash)
 	search := append(neighbors, hash)
-	fmt.Println("search scope hashes:", search)
+	//fmt.Println("search scope hashes:", search)
 	p := i.object.promiseSlice()
 	p.doRead(func() Chain {
 		rangeResults := map[string]fdb.RangeResult{}
@@ -59,23 +57,21 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 				if len(rows) == 0 {
 					continue
 				}
-				fmt.Println("[A] hash got:", sub.Bytes(), "len:", len(rows))
+				//fmt.Println("[A] hash got:", sub.Bytes(), "len:", len(rows))
 				for _, row := range rows {
 					primaryTuple, err := sub.Unpack(row.Key)
 					if err != nil {
 						return p.fail(err)
 					}
-					fmt.Println("[A] primary:", primaryTuple)
+					//fmt.Println("[A] primary:", primaryTuple)
 					// need object here
 					need = append(need, i.object.need(p.readTr, i.object.sub(primaryTuple)))
 				}
 			}
 			return func() Chain {
-				fmt.Println("len need", len(need))
 				for _, n := range need {
 					val, err := n.fetch()
 					if err != nil {
-						fmt.Println("val failed", err)
 						continue
 						//return p.fail(err)
 					}

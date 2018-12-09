@@ -106,8 +106,7 @@ func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, key tuple.T
 	} else {
 		// Add primary here
 		sub = sub.Sub(primaryTuple...)
-		start, end := sub.FDBRangeKeys()
-		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+		tr.Clear(sub) // removing old keys
 	}
 }
 

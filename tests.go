@@ -801,6 +801,52 @@ func testsCounter(dir *Directory) error {
 	return nil
 }
 
+func testsGeoIndex(dir *Directory) error {
+	type geo struct {
+		ID   int     `stored:"id"`
+		Lat  float64 `stored:"lat"`
+		Long float64 `stored:"long"`
+	}
+	g := dir.Object("geo_test", geo{})
+	g.Primary("id")
+	indexGeo := g.IndexGeo("lat", "long", 4)
+	dbGeo := g.Done()
+	dbGeo.Clear()
+
+	row := geo{
+		ID:   1,
+		Lat:  30.1,
+		Long: 50.101,
+	}
+	err := dbGeo.Set(&row).Err()
+	if err != nil {
+		return err
+	}
+	rows := []geo{}
+	err = indexGeo.GetGeo(30.1, 50.10101, 10).ScanAll(&rows)
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 {
+		return fmt.Errorf("incorrect rows count %d instead of 1", len(rows))
+	}
+
+	row.Lat = 50.2 // inverse the coordinates
+	row.Long = 25.1
+	err = dbGeo.Set(&row).Err()
+	rows = []geo{}
+	err = indexGeo.GetGeo(30.1, 50.10101, 10).ScanAll(&rows)
+	if err != nil {
+		return err
+	}
+	if len(rows) != 0 {
+		return fmt.Errorf("item found, should be empty, %d passed", len(rows))
+	}
+
+	return nil
+
+}
+
 // TestsRun runs tests for STORED FoundationdDB layer
 func TestsRun(db *Cluster) {
 	packed.Test()
@@ -855,5 +901,7 @@ func TestsRun(db *Cluster) {
 	assert("n2n_self", testsN2NSelf(n2nSelfUser.Done(), n2nSelfUserUser))
 
 	assert("counter", testsCounter(dir))
+
+	assert("geo_index", testsGeoIndex(dir))
 	fmt.Println("elapsed", time.Since(start))
 }
