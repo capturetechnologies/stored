@@ -2,6 +2,7 @@ package stored
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -9,12 +10,14 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
+// RelationN2N is main type of relation
 var RelationN2N = 1
 
 // list of service keys for shorter
 var keyRelHostCount = "a"
 var keyRelClientCount = "b"
 
+// Relation is main struct to represent Relation
 type Relation struct {
 	host            *Object
 	client          *Object
@@ -23,6 +26,7 @@ type Relation struct {
 	infoDir         directory.DirectorySubspace
 	kind            int
 	counter         bool
+	counterClient   *Field
 	hostDataField   *Field
 	clientDataField *Field
 }
@@ -60,6 +64,15 @@ func (r *Relation) panic(text string) {
 // Counter will start count objects count within relation
 func (r *Relation) Counter(on bool) {
 	r.counter = on
+}
+
+// CounterClient will set external field
+func (r *Relation) CounterClient(object *ObjectBuilder, fieldName string) {
+	field := object.object.field(fieldName)
+	if field.Kind != reflect.Int64 {
+		r.panic("field «" + fieldName + "» should be int64 to work as counter")
+	}
+	r.counterClient = field
 }
 
 // return primary values, no masser object wass passed or primary value
@@ -120,6 +133,23 @@ func (r *Relation) ClientData(fieldName string) {
 	r.clientDataField = field
 }
 
+func (r *Relation) incClientCounter(clientPrimary tuple.Tuple, tr fdb.Transaction, incVal []byte) {
+	if r.counterClient != nil {
+		sub := r.counterClient.object.sub(clientPrimary)
+		tr.Add(r.counterClient.getKey(sub), countInc)
+	} else {
+		tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), incVal)
+	}
+}
+
+func (r *Relation) getClientCounter(clientPrimary tuple.Tuple, tr fdb.ReadTransaction) fdb.FutureByteSlice {
+	if r.counterClient != nil {
+		sub := r.counterClient.object.sub(clientPrimary)
+		return tr.Get(r.counterClient.getKey(sub))
+	}
+	return tr.Get(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary))
+}
+
 // Add writes new relation beween objects (return ErrAlreadyExist if exists)
 func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) error {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
@@ -133,7 +163,7 @@ func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) error {
 		}
 		if r.counter { // increment if not exists
 			tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
-			tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
+			r.incClientCounter(clientPrimary, tr, countInc)
 		}
 
 		// getting data to store inside relation kv
@@ -160,7 +190,8 @@ func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
 			}
 			if val == nil { // not exists increment here
 				tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
-				tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
+				//tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
+				r.incClientCounter(clientPrimary, tr, countInc)
 			}
 		}
 
@@ -188,7 +219,8 @@ func (r *Relation) Delete(hostOrID interface{}, clientOrID interface{}) error {
 			}
 			if val != nil { // exists decrement here
 				tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countDec)
-				tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countDec)
+				//tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countDec)
+				r.incClientCounter(clientPrimary, tr, countDec)
 			}
 		}
 		tr.Clear(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
@@ -208,7 +240,9 @@ func (r *Relation) GetHostsCount(clientOrID interface{}) *Promise {
 	p.doRead(func() Chain {
 		clientPrimary := r.host.getPrimaryTuple(clientOrID)
 		//row, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := p.readTr.Get(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary)).Get()
+		//row, err := p.readTr.Get(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary)).Get()
+		row, err := r.getClientCounter(clientPrimary, p.readTr).Get()
+
 		if row == nil {
 			return p.fail(ErrNotFound)
 			//return nil, ErrNotFound
@@ -219,6 +253,21 @@ func (r *Relation) GetHostsCount(clientOrID interface{}) *Promise {
 		return p.done(ToInt64(row))
 	})
 	return p
+}
+
+// SetHostsCounterUnsafe set hosts counter unsafely. User with care
+func (r *Relation) SetHostsCounterUnsafe(clientObject interface{}, count int64) error {
+	clientPrimary := r.client.getPrimaryTuple(clientObject)
+	_, err := r.client.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		if r.counterClient != nil {
+			sub := r.counterClient.object.sub(clientPrimary)
+			tr.Set(r.counterClient.getKey(sub), Int64(count))
+		} else {
+			tr.Set(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), Int64(count))
+		}
+		return
+	})
+	return err
 }
 
 // GetClientsCount fetches counter
