@@ -367,9 +367,9 @@ func (o *Object) subspace(objOrID interface{}) subspace.Subspace {
 	return o.primary.Sub(primaryTuple...)
 }
 
-// IncField increment field
+// IncFieldUnsafe increment field  of an object
 // does not implement indexes in the moment
-// moved to IncFieldUnsafe
+// would not increment field of passed object, take care
 func (o *Object) IncFieldUnsafe(objOrID interface{}, fieldName string, incVal interface{}) *PromiseErr {
 	field := o.field(fieldName)
 	//primaryID := o.GetPrimaryField().fromAnyInterface(objOrID)
@@ -480,16 +480,25 @@ func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
 		bytesValue := input.GetBytes(field)
 		sub := input.getSubspace(o)
 		key := sub.Pack(tuple.Tuple{field.Name})
-		fieldGet := p.tr.Get(key)
+		//fieldGet := p.tr.Get(key)
 
-		return func() Chain {
-			val, err := fieldGet.Get()
+		isSet := p.tr.GetKey(fdb.FirstGreaterThan(sub))
+
+		return func() Chain { // better to get first key
+			firstKey, err := isSet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if !sub.Contains(firstKey) {
+				return p.fail(ErrNotFound)
+			}
+			/*val, err := fieldGet.Get()
 			if err != nil {
 				return p.fail(err)
 			}
 			if val == nil {
 				return p.fail(ErrNotFound)
-			}
+			}*/
 			p.tr.Set(key, bytesValue)
 			return p.ok()
 		}

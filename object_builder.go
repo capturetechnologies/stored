@@ -105,6 +105,18 @@ func (ob *ObjectBuilder) Index(key string) *ObjectBuilder {
 	return ob
 }
 
+// FastIndex will set index storing copy of object, performing denormalisation
+func (ob *ObjectBuilder) FastIndex(names ...string) *ObjectBuilder {
+	for _, name := range names {
+		_, ok := ob.object.fields[name]
+		if !ok {
+			ob.panic("has no key «" + name + "» could not set primar")
+		}
+	}
+	// init fast index here
+	return ob
+}
+
 // IndexGeo will add and geohash based index to allow geographicly search objects
 // geoPrecision 0 means full precision:
 // 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
