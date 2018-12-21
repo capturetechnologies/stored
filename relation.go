@@ -123,11 +123,13 @@ func (r *Relation) getData(hostObj interface{}, clientObj interface{}) (hostVal,
 	return
 }
 
+// HostData will set host data field name
 func (r *Relation) HostData(fieldName string) {
 	field := r.host.field(fieldName)
 	r.hostDataField = field
 }
 
+// ClientData will set cliet data field name
 func (r *Relation) ClientData(fieldName string) {
 	field := r.client.field(fieldName)
 	r.clientDataField = field
@@ -136,7 +138,7 @@ func (r *Relation) ClientData(fieldName string) {
 func (r *Relation) incClientCounter(clientPrimary tuple.Tuple, tr fdb.Transaction, incVal []byte) {
 	if r.counterClient != nil {
 		sub := r.counterClient.object.sub(clientPrimary)
-		tr.Add(r.counterClient.getKey(sub), countInc)
+		tr.Add(r.counterClient.getKey(sub), incVal)
 	} else {
 		tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), incVal)
 	}
@@ -151,32 +153,33 @@ func (r *Relation) getClientCounter(clientPrimary tuple.Tuple, tr fdb.ReadTransa
 }
 
 // Add writes new relation beween objects (return ErrAlreadyExist if exists)
-func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) error {
+func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) *PromiseErr {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+	p := r.host.promiseErr()
+	p.do(func() Chain {
+		val, err := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 		if err != nil {
-			return nil, err
+			p.fail(err)
 		}
 		if val != nil { // already exists
-			return nil, ErrAlreadyExist
+			p.fail(ErrAlreadyExist)
 		}
 		if r.counter { // increment if not exists
-			tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
-			r.incClientCounter(clientPrimary, tr, countInc)
+			p.tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
+			r.incClientCounter(clientPrimary, p.tr, countInc)
 		}
 
 		// getting data to store inside relation kv
 		hostVal, clientVal, dataErr := r.getData(hostOrID, clientOrID)
 		if dataErr != nil {
-			return nil, dataErr
+			p.fail(dataErr)
 		}
 
-		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
-		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
-		return
+		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+		return p.ok()
 	})
-	return err
+	return p
 }
 
 // Set writes new relation beween objects, you could use objects or values with same types as primary key
@@ -209,25 +212,26 @@ func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
 }
 
 // Delete removes relation between objects
-func (r *Relation) Delete(hostOrID interface{}, clientOrID interface{}) error {
+func (r *Relation) Delete(hostOrID interface{}, clientOrID interface{}) *PromiseErr {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	p := r.host.promiseErr()
+	p.do(func() Chain {
 		if r.counter { // increment if not exists
-			val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+			val, err := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 			if err != nil {
-				return nil, err
+				return p.fail(err)
 			}
 			if val != nil { // exists decrement here
-				tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countDec)
+				p.tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countDec)
 				//tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countDec)
-				r.incClientCounter(clientPrimary, tr, countDec)
+				r.incClientCounter(clientPrimary, p.tr, countDec)
 			}
 		}
-		tr.Clear(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
-		tr.Clear(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
-		return
+		p.tr.Clear(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		p.tr.Clear(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
+		return p.ok()
 	})
-	return err
+	return p
 }
 
 // GetHostsCount fetches counter

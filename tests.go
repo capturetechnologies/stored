@@ -363,7 +363,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Delete(user1, chatToDelete) // delete using object
+	err = n2nUserChat.Delete(user1, chatToDelete).Err() // delete using object
 	if err != nil {
 		return err
 	}
@@ -388,6 +388,8 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	if chats[2].Name != "Chat name 3" || chats[2].ID != 3 {
 		return errors.New("chat 3 is invalid")
 	}
+
+	// counter test
 	var count int64
 	count, err = n2nUserChat.GetClientsCount(user1).Int64()
 	if err != nil {
@@ -427,6 +429,19 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	}
 	if count != 3 {
 		return errors.New("incorrect chat counter count: " + strconv.Itoa(int(count)))
+	}
+
+	// Counters decrement test
+	err = n2nUserChat.Delete(user3, chat1).Err()
+	if err != nil {
+		return err
+	}
+	count, err = n2nUserChat.GetHostsCount(chat1).Int64()
+	if err != nil {
+		return err
+	}
+	if count != 2 {
+		return errors.New("incorrect chat counter count after delete one (should 2): " + strconv.Itoa(int(count)))
 	}
 
 	ids, err := n2nUserChat.GetClientIDs(user1, 0, 1000).Int64()
@@ -801,6 +816,115 @@ func testsCounter(dir *Directory) error {
 	return nil
 }
 
+func testsN2NClientCounter(dir *Directory) error {
+	type usr struct {
+		ID   int    `stored:"id"`
+		Age  int    `stored:"age"`
+		City string `stored:"city"`
+	}
+	type cht struct {
+		ID         int    `stored:"id"`
+		Name       string `stored:"cht"`
+		MembsCount int64  `stored:"membs_count"`
+	}
+	user := dir.Object("n2n_counter_user", usr{})
+	user.AutoIncrement("id")
+	user.Primary("id")
+	dbUser := user.Done()
+	chat := dir.Object("n2n_counter_chat", cht{})
+	chat.AutoIncrement("id")
+	chat.Primary("id")
+	dbChat := chat.Done()
+
+	n2n := user.N2N(chat)
+
+	dbChat.Clear()
+	dbUser.Clear()
+	n2n.Counter(true)
+	n2n.CounterClient(chat, "membs_count")
+
+	cht1 := cht{
+		Name: "My Chat",
+	}
+	err := dbChat.Add(&cht1).Err()
+	if err != nil {
+		fmt.Println("e1")
+		return err
+	}
+	usr1 := usr{
+		Age:  18,
+		City: "LA",
+	}
+	err = dbUser.Add(&usr1).Err()
+	if err != nil {
+		fmt.Println("e2")
+		return err
+	}
+	err = n2n.Add(&usr1, &cht1).Err()
+	if err != nil {
+		fmt.Println("e3")
+		return err
+	}
+	usr2 := usr{
+		Age:  19,
+		City: "SF",
+	}
+	err = dbUser.Add(&usr2).Err()
+	if err != nil {
+		fmt.Println("e4")
+		return err
+	}
+	err = n2n.Add(&usr2, &cht1).Err()
+	if err != nil {
+		fmt.Println("e5")
+		return err
+	}
+	usr3 := usr{
+		Age:  20,
+		City: "NY",
+	}
+	err = dbUser.Add(&usr3).Err()
+	if err != nil {
+		fmt.Println("e6")
+		return err
+	}
+	err = n2n.Add(&usr3, &cht1).Err()
+	if err != nil {
+		fmt.Println("e7")
+		return err
+	}
+
+	// renew the object
+	err = dbChat.Get(&cht1).Err()
+	if err != nil {
+		fmt.Println("e7")
+		return err
+	}
+
+	if cht1.MembsCount != 3 {
+		return fmt.Errorf("members count != 3, %d", cht1.MembsCount)
+	}
+
+	err = n2n.Delete(&usr2, &cht1).Err()
+	if err != nil {
+		fmt.Println("e7")
+		return err
+	}
+
+	// renew the object
+	err = dbChat.Get(&cht1).Err()
+	if err != nil {
+		fmt.Println("e7")
+		return err
+	}
+
+	if cht1.MembsCount != 2 {
+		return fmt.Errorf("members count != 2, %d", cht1.MembsCount)
+	}
+
+	return nil
+}
+
 func testsGeoIndex(dir *Directory) error {
 	type geo struct {
 		ID   int     `stored:"id"`
@@ -901,6 +1025,7 @@ func TestsRun(db *Cluster) {
 	assert("n2n_self", testsN2NSelf(n2nSelfUser.Done(), n2nSelfUserUser))
 
 	assert("counter", testsCounter(dir))
+	assert("n2n_client_counter", testsN2NClientCounter(dir))
 
 	assert("geo_index", testsGeoIndex(dir))
 	fmt.Println("elapsed", time.Since(start))
