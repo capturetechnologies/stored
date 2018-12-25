@@ -68,6 +68,10 @@ func (p *Promise) clear() {
 }
 
 func (p *Promise) transact() (interface{}, error) {
+	if p.readTr != nil {
+		p.clear()
+		return p.execute()
+	}
 	if p.readOnly {
 		return p.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
 			p.clear() // since transaction could be repeated - should clear everything
@@ -125,8 +129,8 @@ func (p *Promise) Int64() (int64, error) {
 
 // Join allow easely join two promises into the parallel Transaction
 // FoundationDB garantees that ether both of requests will complete or none
-func (p *Promise) Join(sidePromise *Promise) *Parallel {
-	return &Parallel{
+func (p *Promise) Join(sidePromise *Promise) *Transaction {
+	return &Transaction{
 		Promises: []*Promise{p, sidePromise},
 		db:       p.db,
 	}
@@ -137,10 +141,28 @@ func (p *Promise) Join(sidePromise *Promise) *Parallel {
 // will be started before logic execution.
 // at the moment of do function execution, first step if parent promise will already
 // be executed
-func (p *Promise) JoinDo(do func() *Promise) *Parallel {
-	return &Parallel{
+func (p *Promise) JoinDo(do func() *Promise) *Transaction {
+	return &Transaction{
 		Promises: []*Promise{p},
 		ghosts:   []func() *Promise{do},
 		db:       p.db,
 	}
+}
+
+// Check will perform promise in parallel with other promises whithin transaction
+// without returning the result. But if Promise will return error full transaction
+// will be cancelled and error will be returned
+func (p *Promise) Check(t *Transaction) {
+	t.Promises = append(t.Promises, p)
+}
+
+// Do will attach promise to transaction, so promise will be called within passed transaction
+// Promise should be inside an transaction callback, because transaction could be resent
+func (p *Promise) Do(t *Transaction) *Promise {
+	if !t.started {
+		panic("transaction not started, could not use in Promise")
+	}
+	p.tr = t.tr
+	p.readTr = t.readTr
+	return p
 }

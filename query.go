@@ -156,6 +156,13 @@ func (q *Query) execute() interface{} {
 				start = sub.Pack(q.from)
 			}
 		}
+		if q.to != nil {
+			if q.reverse {
+				start = sub.Pack(q.to)
+			} else {
+				end = sub.Pack(q.to)
+			}
+		}
 
 		r := fdb.KeyRange{Begin: start, End: end}
 

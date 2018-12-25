@@ -508,58 +508,88 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 		return p.done(nil)
 	})
 	return p
-
-	/*_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		row, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
-		if err != nil {
-			return nil, err
-		}
-		if row == nil {
-			fmt.Println("Catched error")
-			return nil, ErrNotFound
-		}
-
-		// getting data to store inside relation kv
-		clientVal, dataErr := r.getClientDataBytes(clientObj)
-		if dataErr != nil {
-			return nil, dataErr
-		}
-
-		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
-		return
-	})
-	return err*/
 }
 
-// UpdateHostData writed new data from host object (host data could be )
-func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}) *Promise {
+// UpdateData will atomicly update host and client index storage data using callback
+func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}, callback func()) *Promise {
+	hostEditable := structEditable(hostObj)
+	clientEditable := structEditable(clientObj)
+	hostPrimary := hostEditable.getPrimary(r.host)
+	clientPrimary := clientEditable.getPrimary(r.client)
+
+	//hostPrimary, clientPrimary := r.getPrimary(hostObj, clientObj)
+	p := r.client.promise()
+	p.do(func() Chain {
+		hostDataGet := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
+		clientDataGet := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		return func() Chain {
+			hostData, hostErr := hostDataGet.Get()
+			if hostErr != nil {
+				return p.fail(hostErr)
+			}
+			clientData, clientErr := clientDataGet.Get()
+			if clientErr != nil {
+				return p.fail(clientErr)
+			}
+			if hostData == nil || clientData == nil {
+				return p.fail(ErrNotFound)
+			}
+
+			//var hostVal, clientVal []byte
+			//var err error
+
+			hostEditable.setField(r.hostDataField, hostData)
+			clientEditable.setField(r.clientDataField, clientData)
+			callback()
+			hostVal := hostEditable.GetBytes(r.hostDataField)
+			clientVal := clientEditable.GetBytes(r.clientDataField)
+			/*hostVal, err = r.hostDataField.ToBytes(hostI)
+			if err != nil {
+				return p.fail(err)
+			}
+			clientVal, err = r.clientDataField.ToBytes(clientI)
+			if err != nil {
+				return p.fail(err)
+			}*/
+
+			p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+			p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+			return p.done(nil)
+		}
+	})
+	return p
+}
+
+// SetData writed new data for both host and client index storages, return fail if object nor exist
+func (r *Relation) SetData(hostObj interface{}, clientObj interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostObj, clientObj)
 	p := r.client.promise()
 	p.do(func() Chain {
-		//_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		dataGet := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
-		row, err := dataGet.Get()
-		if err != nil {
-			return p.fail(err)
-		}
-		if row == nil {
-			return p.fail(ErrNotFound)
-		}
+		return func() Chain {
+			row, err := dataGet.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if row == nil {
+				return p.fail(ErrNotFound)
+			}
 
-		// getting data to store inside relation kv
-		hostVal, dataErr := r.getHostDataBytes(hostObj)
-		if dataErr != nil {
-			return p.fail(dataErr)
-		}
+			// getting data to store inside relation kv
+			hostVal, dataErr := r.getHostDataBytes(hostObj)
+			if dataErr != nil {
+				return p.fail(dataErr)
+			}
 
-		p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+			p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
 
-		clientVal, dataErr := r.getClientDataBytes(clientObj)
-		if dataErr != nil {
-			return p.fail(dataErr)
+			clientVal, dataErr := r.getClientDataBytes(clientObj)
+			if dataErr != nil {
+				return p.fail(dataErr)
+			}
+			p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+			return p.done(nil)
 		}
-		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
-		return p.done(nil)
 	})
 	return p
 }

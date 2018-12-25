@@ -99,3 +99,29 @@ func (d *Directory) Multi() *MultiChain {
 	db.init()
 	return &db
 }*/
+
+// Read will run callback in read transaction
+func (d *Directory) Read(callback func(*Transaction)) *Transaction {
+	db := &d.Cluster.db
+	t := Transaction{db: db}
+	_, err := db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
+		t.initRead(tr)
+		callback(&t)
+		return nil, t.Err()
+	})
+	t.err = err
+	return &t
+}
+
+// Write will run callback in write transaction
+func (d *Directory) Write(callback func(*Transaction)) *Transaction {
+	db := &d.Cluster.db
+	t := Transaction{db: db}
+	_, err := db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		t.initWrite(tr)
+		callback(&t)
+		return nil, t.Err()
+	})
+	t.err = err
+	return &t
+}
