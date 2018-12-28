@@ -6,7 +6,6 @@ import "github.com/apple/foundationdb/bindings/go/src/fdb"
 // also parallel executes promises effectively trying to parallel where its possible
 type Transaction struct {
 	Promises []*Promise
-	ghosts   []func() *Promise
 	db       *fdb.Database
 	writable bool
 	readTr   fdb.ReadTransaction
@@ -33,14 +32,12 @@ func (t *Transaction) clear() {
 
 func (t *Transaction) initRead(tr fdb.ReadTransaction) {
 	t.Promises = []*Promise{}
-	t.ghosts = []func() *Promise{}
 	t.readTr = tr
 	t.started = true
 }
 
 func (t *Transaction) initWrite(tr fdb.Transaction) {
 	t.Promises = []*Promise{}
-	t.ghosts = []func() *Promise{}
 	t.readTr = tr
 	t.tr = tr
 	t.writable = true
@@ -58,6 +55,7 @@ func (t *Transaction) transact() {
 	}
 	if t.started {
 		_, t.err = t.execute()
+		return
 	}
 	t.started = true
 
@@ -98,22 +96,17 @@ func (t *Transaction) execute() (ret interface{}, err error) {
 					return
 				}
 				next = true
-			}
-		}
-		// going through ghost promises to create real promises from functions
-		if len(t.ghosts) != 0 {
-			for _, ghost := range t.ghosts {
-				ghostPromise := ghost()
-				t.Promises = append(t.Promises, ghostPromise)
-				t.setTr(ghostPromise)
-				chains = append(chains, ghostPromise.chain())
-				if ghostPromise.err != nil {
-					err = ghostPromise.err
-					return
+			} else { // if promise is done we chan check for postponed relative promises
+				promise := t.Promises[i]
+				if promise.after != nil {
+					after := promise.after().self()
+					promise.after = nil
+					t.setTr(after)
+					t.Promises = append(t.Promises, after)
+					chains = append(chains, after.chain)
+					next = true
 				}
-				next = true
 			}
-			t.ghosts = []func() *Promise{}
 		}
 	}
 	return

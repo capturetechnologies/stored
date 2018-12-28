@@ -390,12 +390,14 @@ func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, dataField *Field
 	return resp.(*SliceIDs)
 }
 
+// GetClientIDs will fetch only primary values of client objects
 func (r *Relation) GetClientIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
 	hostPrimary := r.host.getPrimaryTuple(objOrID)
 	sub := r.hostDir.Sub(hostPrimary...)
 	return r.getSliceIDs(r.host, r.client, r.clientDataField, sub, from, limit)
 }
 
+// GetHostIDs will fetch only primary values of host objects
 func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) *SliceIDs {
 	clientPrimary := r.client.getPrimaryTuple(objOrID)
 	sub := r.clientDir.Sub(clientPrimary...)

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// File is an stuct which describes file for the ast
 type File struct {
 	name    string
 	fileSet *token.FileSet

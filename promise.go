@@ -15,9 +15,15 @@ type Promise struct {
 	readTr   fdb.ReadTransaction
 	tr       fdb.Transaction
 	chain    Chain
+	after    func() PromiseAny
 	err      error
 	readOnly bool
 	resp     interface{}
+}
+
+// PromiseAny describes any type of promise
+type PromiseAny interface {
+	self() *Promise
 }
 
 func (p *Promise) do(chain Chain) {
@@ -58,6 +64,12 @@ func (p *Promise) execute() (interface{}, error) {
 	next := p.chain()
 	for next != nil {
 		next = next()
+	}
+	if p.after != nil {
+		after := p.after().self()
+		after.tr = p.tr
+		after.readTr = p.readTr
+		after.execute()
 	}
 	return p.resp, p.err
 }
@@ -127,26 +139,12 @@ func (p *Promise) Int64() (int64, error) {
 	return res, nil
 }
 
-// Join allow easely join two promises into the parallel Transaction
-// FoundationDB garantees that ether both of requests will complete or none
-func (p *Promise) Join(sidePromise *Promise) *Transaction {
-	return &Transaction{
-		Promises: []*Promise{p, sidePromise},
-		db:       p.db,
-	}
-}
-
-// JoinDo is the same as join, but its accept function instad which returns
-// promise. Usefull if you whant to add some logic prior execution. Transaction
-// will be started before logic execution.
-// at the moment of do function execution, first step if parent promise will already
-// be executed
-func (p *Promise) JoinDo(do func() *Promise) *Transaction {
-	return &Transaction{
-		Promises: []*Promise{p},
-		ghosts:   []func() *Promise{do},
-		db:       p.db,
-	}
+// After will perform an additional promise right after current one will be finised
+// This works in transactions as well as in standalone promises, child promise will
+// be executed in same transaction as parent
+func (p *Promise) After(do func() PromiseAny) *Promise {
+	p.after = do
+	return p
 }
 
 // Check will perform promise in parallel with other promises whithin transaction
@@ -164,5 +162,10 @@ func (p *Promise) Do(t *Transaction) *Promise {
 	}
 	p.tr = t.tr
 	p.readTr = t.readTr
+	return p
+}
+
+// Promise will return promise from any type of promise
+func (p *Promise) self() *Promise {
 	return p
 }

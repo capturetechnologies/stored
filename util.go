@@ -34,6 +34,7 @@ const (
 	GenIDRandom
 )
 
+// FetchRange will fetch list of range results
 func FetchRange(tr fdb.ReadTransaction, needed []fdb.RangeResult) ([][]fdb.KeyValue, error) {
 	results := make([][]fdb.KeyValue, len(needed))
 	for k, v := range needed {
@@ -89,7 +90,7 @@ func ToInt(b []byte) int {
 	return int(binary.LittleEndian.Uint32(b))
 }
 
-func IncrementTuple(t tuple.Tuple) tuple.Tuple {
+func incrementTuple(t tuple.Tuple) tuple.Tuple {
 	index := len(t) - 1
 	if index < 0 {
 		return t

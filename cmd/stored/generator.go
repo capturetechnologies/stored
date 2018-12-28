@@ -52,19 +52,19 @@ func (g *Generator) cutOldCode(code string) (string, error) {
 
 func (g *Generator) write() {
 	if g.file == nil {
-		fmt.Errorf("no generate tag found, please put this tag in your code //go:generate $GOPATH/bin/stored")
+		fmt.Printf("no generate tag found, please put this tag in your code //go:generate $GOPATH/bin/stored")
 		return
 	}
 	codeBytes, err := ioutil.ReadFile(g.file.name)
 	if err != nil {
-		fmt.Errorf("could not read file «%s»: %v", g.file.name, err)
+		fmt.Printf("could not read file «%s»: %v", g.file.name, err)
 		return
 	}
 	code := string(codeBytes)
 	code, err = g.cutOldCode(code)
 	if err != nil {
 		fmt.Println("new code ERRR", err)
-		fmt.Errorf("%s", err)
+		fmt.Printf("%s", err)
 		return
 	}
 

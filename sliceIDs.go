@@ -7,6 +7,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
+// SliceIDs is slice that contain  only int64 data
 type SliceIDs struct {
 	object    *Object
 	ids       []tuple.Tuple
@@ -26,6 +27,7 @@ func (s *SliceIDs) push(key tuple.Tuple, val []byte) {
 	s.values = append(s.values, val)
 }
 
+// Int64 will format response as int64 map if possible
 func (s *SliceIDs) Int64() (map[int64][]byte, error) {
 	if s.err != nil {
 		return nil, s.err
@@ -41,6 +43,7 @@ func (s *SliceIDs) Int64() (map[int64][]byte, error) {
 	return res, nil
 }
 
+// ScanAll will scan all results for slice pointer
 func (s *SliceIDs) ScanAll(slicePointer interface{}) (e error) {
 	if s.err != nil {
 		return s.err

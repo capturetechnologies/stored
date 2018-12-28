@@ -383,11 +383,6 @@ func (o *Object) IncFieldUnsafe(objOrID interface{}, fieldName string, incVal in
 			return p.fail(err)
 		}
 		p.tr.Add(incKey, val)
-		/*for _,i := range o.indexes {
-			if i.field == field || i.handle != nil {
-				i.Write(p.tr, primaryTuple, input, oldObject)
-			}
-		}*/
 		return p.ok()
 	})
 	return p

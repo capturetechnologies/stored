@@ -125,3 +125,16 @@ func (d *Directory) Write(callback func(*Transaction)) *Transaction {
 	t.err = err
 	return &t
 }
+
+// Parallel will create read transaction to perform multi gets
+func (d *Directory) Parallel(tasks ...PromiseAny) *Transaction {
+	db := &d.Cluster.db
+	t := Transaction{
+		Promises: []*Promise{},
+		db:       db,
+	}
+	for _, task := range tasks {
+		t.Promises = append(t.Promises, task.self())
+	}
+	return &t
+}

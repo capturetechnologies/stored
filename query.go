@@ -49,6 +49,12 @@ func (q *Query) Reverse() *Query {
 	return q
 }
 
+// SetReverse set reverse value from param
+func (q *Query) SetReverse(reverse bool) *Query {
+	q.reverse = reverse
+	return q
+}
+
 // List queries list of items using primary key subspace. Pass no params if fetching all objects
 func (q *Query) List(values ...interface{}) *Query {
 	if len(values) == 0 {
@@ -123,6 +129,7 @@ func (q *Query) Slice() *Slice {
 }
 
 // execute the query
+// could be called several times with one query
 func (q *Query) execute() interface{} {
 	keyLen := len(q.object.primaryFields)
 	resp, err := q.object.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
@@ -220,7 +227,7 @@ func (q *Query) execute() interface{} {
 
 		if !reflect.DeepEqual(q.from, lastTuple) {
 			q.next.from = lastTuple
-			//q.next.from = IncrementTuple(lastTuple)
+			//q.next.from = incrementTuple(lastTuple)
 		} else {
 			q.next.from = nil
 		}
