@@ -545,6 +545,7 @@ func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}, callba
 			callback()
 			hostVal := hostEditable.GetBytes(r.hostDataField)
 			clientVal := clientEditable.GetBytes(r.clientDataField)
+
 			/*hostVal, err = r.hostDataField.ToBytes(hostI)
 			if err != nil {
 				return p.fail(err)

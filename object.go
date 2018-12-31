@@ -494,6 +494,7 @@ func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
 			if val == nil {
 				return p.fail(ErrNotFound)
 			}*/
+			//fmt.Println("field SET", o.name, field.Name, key, bytesValue)
 			p.tr.Set(key, bytesValue)
 			return p.ok()
 		}
