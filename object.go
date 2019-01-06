@@ -29,53 +29,13 @@ type Object struct {
 	keysCount       int
 }
 
-func (o *Object) init(name string, db *fdb.Database, dir *Directory, schemaObj interface{}) {
-	o.name = name
-	o.db = db
-	o.directory = dir
+func (o *Object) init() {
 	var err error
-	o.dir, err = dir.Subspace.CreateOrOpen(db, []string{name}, nil)
+	o.dir, err = o.directory.Subspace.CreateOrOpen(o.db, []string{o.name}, nil)
 	if err != nil {
 		panic(err)
 	}
-	o.miscDir, err = o.dir.CreateOrOpen(db, []string{"misc"}, nil)
-	if err != nil {
-		panic(err)
-	}
-	//o.key = tuple.Tuple{name}
-	o.indexes = map[string]*Index{}
-	o.counters = map[string]*Counter{}
-	o.buildSchema(schemaObj)
-}
-
-func (o *Object) setPrimary(names ...string) {
-	var name string
-	if len(names) == 1 {
-		name = names[0]
-	}
-	if o.primaryKey != "" {
-		if o.primaryKey == name {
-			return
-		}
-		o.panic("primary key already set to «" + o.primaryKey + "», could not set to «" + name + "»")
-	}
-	var err error
-	if len(names) > 1 {
-		o.primaryFields = []*Field{}
-		for _, name := range names {
-			field := o.fields[name]
-			o.primaryFields = append(o.primaryFields, field)
-		}
-		o.primaryKey = names[0]
-		o.multiplePrimary = true
-		o.primary, err = o.dir.CreateOrOpen(o.db, names, nil)
-		//panic("not implemented yet")
-	} else {
-		o.primaryKey = name
-		o.primaryFields = []*Field{o.fields[name]}
-		//index := o.addIndex(name, true) // primary is also index
-		o.primary, err = o.dir.CreateOrOpen(o.db, []string{name}, nil)
-	}
+	o.miscDir, err = o.dir.CreateOrOpen(o.db, []string{"misc"}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -111,7 +71,8 @@ func (o *Object) buildSchema(schemaObj interface{}) {
 			}
 			o.fields[tag.Name] = &field
 			if tag.Primary {
-				o.setPrimary(tag.Name)
+				//o.setPrimary(tag.Name)
+				panic("not implemented yet")
 			}
 			if tag.mutable {
 				field.mutable = true

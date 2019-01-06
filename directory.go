@@ -56,14 +56,39 @@ func (d *Directory) init() {
 
 // Object declares new object for document layer
 func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
-	object := &Object{}
+	object := &Object{
+		name:      name,
+		db:        &d.Cluster.db,
+		directory: d,
+		indexes:   map[string]*Index{},
+		counters:  map[string]*Counter{},
+	}
+	object.buildSchema(schemaObj)
+	ob := ObjectBuilder{
+		waitAll: sync.WaitGroup{},
+		object:  object,
+	}
+	d.mux.Lock()
+	d.objects[name] = object
+	d.mux.Unlock()
+	ob.waitInit.Add(1)
+	//fmt.Println("init +1")
+	ob.waitAll.Add(1)
+	//fmt.Println("all +1")
+	go ob.need()
+	return &ob
+
+	/// OLD
+	/*object := &Object{}
 	object.init(name, &d.Cluster.db, d, schemaObj)
 	d.mux.Lock()
 	d.objects[name] = object
 	d.mux.Unlock()
-	return &ObjectBuilder{
+	ob := ObjectBuilder{
 		object: object,
 	}
+	ob.need()
+	return &ob*/
 }
 
 // Clear removes all content inside directory

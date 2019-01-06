@@ -26,6 +26,7 @@ type Field struct {
 	Type          reflect.StructField
 	Value         reflect.Value
 	mutable       bool
+	primary       bool
 	AutoIncrement bool
 	GenID         GenIDType // type of ID autogeneration, IDDate, IDRandom
 	packed        *packed.Packed

@@ -12,18 +12,25 @@ type Counter struct {
 	dir    directory.DirectorySubspace
 }
 
-func counterNew(obj *Object, fields []*Field) *Counter {
-	dir, err := obj.dir.CreateOrOpen(obj.db, []string{"counter"}, nil)
-	if err != nil {
-		panic("Object " + obj.name + " could not add counter directory")
-	}
+func counterNew(ob *ObjectBuilder, fields []*Field) *Counter {
 	ctr := Counter{
-		object: obj,
+		object: ob.object,
 		fields: fields,
-		dir:    dir,
 	}
+	ob.waitAll.Add(1)
+	go func() {
+		ob.waitInit.Wait()
+		dir, err := ob.object.dir.CreateOrOpen(ob.object.db, []string{"counter"}, nil)
+		if err != nil {
+			panic("Object " + ob.object.name + " could not add counter directory")
+		}
+		ctr.dir = dir
 
-	obj.counters[fieldsKey(fields)] = &ctr
+		ob.mux.Lock()
+		ob.object.counters[fieldsKey(fields)] = &ctr
+		ob.mux.Unlock()
+		ob.waitAll.Done()
+	}()
 	return &ctr
 }
 

@@ -19,6 +19,7 @@ type Index struct {
 	Geo       int // geo precision used to
 	dir       directory.DirectorySubspace
 	object    *Object
+	fields    []*Field
 	field     *Field
 	secondary *Field
 	handle    func(interface{}) Key
@@ -34,6 +35,7 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 		}
 		key = tuple.Tuple{keyBytes}
 	} else {
+
 		indexValue := input.Get(i.field)
 		if i.field.isEmpty(indexValue) {
 			return nil
