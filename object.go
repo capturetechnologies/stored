@@ -3,6 +3,7 @@ package stored
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
@@ -39,52 +40,6 @@ func (o *Object) init() {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func (o *Object) buildSchema(schemaObj interface{}) {
-	t := reflect.TypeOf(schemaObj)
-	v := reflect.ValueOf(schemaObj)
-	if v.Kind() == reflect.Ptr {
-		t = t.Elem()
-		v = v.Elem()
-	}
-	o.reflectType = t
-	numfields := v.NumField()
-	o.fields = map[string]*Field{}
-	for i := 0; i < numfields; i++ {
-		field := Field{
-			object: o,
-			Num:    i,
-			Type:   t.Field(i),
-			Value:  v.Field(i),
-		}
-		field.init()
-		field.Kind = field.Value.Kind()
-		if field.Kind == reflect.Slice {
-			field.SubKind = field.Value.Type().Elem().Kind()
-		}
-		tag := field.ParseTag()
-		if tag != nil {
-			field.Name = tag.Name
-			if tag.AutoIncrement {
-				field.SetAutoIncrement()
-			}
-			o.fields[tag.Name] = &field
-			if tag.Primary {
-				//o.setPrimary(tag.Name)
-				panic("not implemented yet")
-			}
-			if tag.mutable {
-				field.mutable = true
-			}
-			if tag.UnStored {
-				field.UnStored = true
-			} else {
-				o.keysCount++
-			}
-		}
-	}
-	return
 }
 
 func (o *Object) editSlice(sliceObjectPtr interface{}) []*Struct {
@@ -198,6 +153,7 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		if field.UnStored {
 			continue
 		}
+
 		value := input.GetBytes(field)
 		tr.Set(field.getKey(sub), value)
 	}
@@ -545,9 +501,9 @@ func (o *Object) Delete(objOrID interface{}) *PromiseErr {
 }
 
 // GetBy fetch one row using index bye name or name of the index field
-func (o *Object) GetBy(objectPtr interface{}, indexKey string) *PromiseErr {
+func (o *Object) GetBy(objectPtr interface{}, indexKeys ...string) *PromiseErr {
 	input := structEditable(objectPtr)
-
+	indexKey := strings.Join(indexKeys, ",")
 	index, ok := o.indexes[indexKey]
 	if !ok {
 		o.panic("index «" + indexKey + "» is undefined")
@@ -555,8 +511,7 @@ func (o *Object) GetBy(objectPtr interface{}, indexKey string) *PromiseErr {
 
 	p := o.promiseErr()
 	p.doRead(func() Chain {
-		data := input.Get(index.field)
-		sub, err := index.getPrimary(p.readTr, data)
+		sub, err := index.getPrimary(p.readTr, index.getKey(input))
 		if err != nil {
 			return p.fail(err)
 		}

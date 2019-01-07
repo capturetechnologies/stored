@@ -3,6 +3,7 @@ package stored
 import (
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
@@ -26,14 +27,15 @@ type Query struct {
 }
 
 // Use is an index selector for query building
-func (q *Query) Use(index string) *Query {
+func (q *Query) Use(indexFieldNames ...string) *Query {
+	indexName := strings.Join(indexFieldNames, ",")
 	for key, i := range q.object.indexes {
-		if key == index {
+		if key == indexName {
 			q.index = i
 			return q
 		}
 	}
-	q.object.panic("index " + index + " is undefined")
+	q.object.panic("index " + indexName + " is undefined")
 	return q
 }
 

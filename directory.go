@@ -63,11 +63,11 @@ func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
 		indexes:   map[string]*Index{},
 		counters:  map[string]*Counter{},
 	}
-	object.buildSchema(schemaObj)
 	ob := ObjectBuilder{
 		waitAll: sync.WaitGroup{},
 		object:  object,
 	}
+	ob.buildSchema(schemaObj)
 	d.mux.Lock()
 	d.objects[name] = object
 	d.mux.Unlock()

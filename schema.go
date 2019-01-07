@@ -24,10 +24,10 @@ type schemaFull struct { // stored separately, an key for each version
 }
 
 type schemaVersion struct {
-	PrimaryFields []schemaField `json:"primary"`  // Fields stored inside primary part of key
-	PackedFields  []schemaField `json:"packed"`   // Fields stored at one-key packed body
-	MutableFields []schemaField `json:"mutable"`  // Fields stored as separate keys (mutable keys)
-	Created       int64         `json:"timestamp` // Time the schema was created
+	PrimaryFields []schemaField `json:"primary"`   // Fields stored inside primary part of key
+	PackedFields  []schemaField `json:"packed"`    // Fields stored at one-key packed body
+	MutableFields []schemaField `json:"mutable"`   // Fields stored as separate keys (mutable keys)
+	Created       int64         `json:"timestamp"` // Time the schema was created
 }
 
 // schemaField is needed to match data in diferent position of the value with fields of object

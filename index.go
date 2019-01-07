@@ -14,15 +14,15 @@ import (
 
 // Index represend all indexes sored has
 type Index struct {
-	Name      string
-	Unique    bool
-	Geo       int // geo precision used to
-	dir       directory.DirectorySubspace
-	object    *Object
-	fields    []*Field
-	field     *Field
-	secondary *Field
-	handle    func(interface{}) Key
+	Name   string
+	Unique bool
+	Geo    int // geo precision used to
+	dir    directory.DirectorySubspace
+	object *Object
+	fields []*Field
+	//field  *Field
+	//secondary *Field
+	handle func(interface{}) Key
 }
 
 // getKey will return index tuple
@@ -35,14 +35,15 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 		}
 		key = tuple.Tuple{keyBytes}
 	} else {
-
-		indexValue := input.Get(i.field)
+		key = tuple.Tuple{}
+		/*indexValue := input.Get(i.field)
 		if i.field.isEmpty(indexValue) {
 			return nil
-		}
+		}*/
 		if i.Geo != 0 {
-			lngInterface := input.Get(i.secondary)
-			lat, long := indexValue.(float64), lngInterface.(float64)
+			latInterface := input.Get(i.fields[0])
+			lngInterface := input.Get(i.fields[1])
+			lat, long := latInterface.(float64), lngInterface.(float64)
 			if lat == 0.0 && long == 0.0 {
 				return nil
 			}
@@ -50,9 +51,13 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 			if i.Geo < 12 {
 				hash = hash[0:i.Geo] // Cutting hash to needed precision
 			}
-			key = tuple.Tuple{hash}
+			key = append(key, hash)
 		} else {
-			key = tuple.Tuple{indexValue}
+			//key = tuple.Tuple{indexValue}
+			for _, field := range i.fields {
+				indexValue := input.Get(field)
+				key = append(key, field.tupleElement(indexValue))
+			}
 		}
 	}
 	return
@@ -159,8 +164,8 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 	return values, nil
 }
 
-func (i *Index) getPrimary(tr fdb.ReadTransaction, data interface{}) (subspace.Subspace, error) {
-	sub := i.dir.Sub(data)
+func (i *Index) getPrimary(tr fdb.ReadTransaction, indexKey tuple.Tuple) (subspace.Subspace, error) {
+	sub := i.dir.Sub(indexKey...)
 	if i.Unique {
 		bytes, err := tr.Get(sub).Get()
 		if err != nil {

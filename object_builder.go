@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,60 @@ type ObjectBuilder struct {
 
 func (ob *ObjectBuilder) panic(text string) {
 	panic("Stored error, object «" + ob.object.name + "» declaration: " + text)
+}
+
+func (ob *ObjectBuilder) buildSchema(schemaObj interface{}) {
+	t := reflect.TypeOf(schemaObj)
+	v := reflect.ValueOf(schemaObj)
+	if v.Kind() == reflect.Ptr {
+		t = t.Elem()
+		v = v.Elem()
+	}
+	o := ob.object
+	ob.mux.Lock()
+	o.reflectType = t
+	numfields := v.NumField()
+	o.fields = map[string]*Field{}
+	primaryFields := []string{}
+	for i := 0; i < numfields; i++ {
+		field := Field{
+			object: o,
+			Num:    i,
+			Type:   t.Field(i),
+			Value:  v.Field(i),
+		}
+		field.init()
+		field.Kind = field.Value.Kind()
+		if field.Kind == reflect.Slice {
+			field.SubKind = field.Value.Type().Elem().Kind()
+		}
+		tag := field.ParseTag()
+		if tag != nil {
+			field.Name = tag.Name
+			if tag.AutoIncrement {
+				field.SetAutoIncrement()
+			}
+			o.fields[tag.Name] = &field
+			if tag.Primary {
+				primaryFields = append(primaryFields, tag.Name)
+				//o.setPrimary(tag.Name)
+				//panic("not implemented yet")
+			}
+			if tag.mutable {
+				field.mutable = true
+			}
+			if tag.UnStored {
+				field.UnStored = true
+			} else {
+				o.keysCount++
+			}
+		}
+	}
+	ob.mux.Unlock()
+	if len(primaryFields) > 0 {
+		ob.Primary(primaryFields...)
+	}
+	return
 }
 
 func (ob *ObjectBuilder) addIndex(indexKey string) *Index {
@@ -72,16 +127,21 @@ func (ob *ObjectBuilder) addFieldIndex(fieldKeys []string) *Index {
 	return index
 }
 
-func (ob *ObjectBuilder) addGeoIndex(fieldKey, indexKey string) *Index {
+func (ob *ObjectBuilder) addGeoIndex(latKey, longKey, indexKey string) *Index {
 	ob.mux.Lock()
-	field, ok := ob.object.fields[fieldKey]
-	ob.mux.Unlock()
+	latField, ok := ob.object.fields[latKey]
 	if !ok {
-		ob.panic("has no key «" + fieldKey + "» could not set index")
+		ob.panic("has no key «" + latKey + "» could not set index")
 	}
+	longField, ok := ob.object.fields[longKey]
+	if !ok {
+		ob.panic("has no key «" + longKey + "» could not set index")
+	}
+	ob.mux.Unlock()
+
 	index := ob.addIndex(indexKey)
-	index.field = field
-	index.fields = []*Field{field}
+	//index.field = field
+	index.fields = []*Field{latField, longField}
 	return index
 }
 
@@ -240,18 +300,11 @@ func (ob *ObjectBuilder) FastIndex(names ...string) *ObjectBuilder {
 // geoPrecision 0 means full precision:
 // 10 < 1m, 9 ~ 7.5m, 8 ~ 21m, 7 ~ 228m, 6 ~ 1.8km, 5 ~ 7.2km, 4 ~ 60km, 3 ~ 234km, 2 ~ 1890km, 1 ~ 7500km
 func (ob *ObjectBuilder) IndexGeo(latKey string, longKey string, geoPrecision int) *IndexGeo {
-	index := ob.addGeoIndex(latKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
+	index := ob.addGeoIndex(latKey, longKey, latKey+","+longKey+":"+strconv.Itoa(geoPrecision))
 	if geoPrecision < 1 || geoPrecision > 12 {
 		geoPrecision = 12
 	}
 	index.Geo = geoPrecision
-	ob.mux.Lock()
-	field, ok := ob.object.fields[longKey]
-	ob.mux.Unlock()
-	if !ok {
-		ob.panic("has no key «" + longKey + "» could not set index")
-	}
-	index.secondary = field
 	return &IndexGeo{index: index}
 }
 
