@@ -142,6 +142,15 @@ func (f *Field) tupleElement(val interface{}) tuple.TupleElement {
 	return val
 }
 
+func (f *Field) setTupleValue(value reflect.Value, interfaceValue interface{}) {
+	objField := value.Field(f.Num)
+	switch objField.Kind() {
+	case reflect.Int: // tuple store int as int64
+		interfaceValue = int(interfaceValue.(int64))
+	}
+	objField.Set(reflect.ValueOf(interfaceValue))
+}
+
 func (f *Field) getKey(sub subspace.Subspace) fdb.Key {
 	return sub.Pack(tuple.Tuple{f.Name})
 }

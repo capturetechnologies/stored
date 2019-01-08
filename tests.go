@@ -379,8 +379,11 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	if len(chats) != 3 {
 		return errors.New("incorrect chats amount was fetched")
 	}
-	if chats[0].Name != "Chat name 1" || chats[0].ID != 1 {
-		return errors.New("chat 1 is invalid")
+	if chats[0].Name != "Chat name 1" {
+		return errors.New("chat 1 is invalid, name incorrect: " + chats[0].Name)
+	}
+	if chats[0].ID != 1 {
+		return fmt.Errorf("chat 1 is invalid, id incorrect: %d", chats[0].ID)
 	}
 	if chats[1].Name != "Chat name 2" || chats[1].ID != 2 {
 		return errors.New("chat 2 is invalid")
@@ -722,8 +725,14 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	if len(messages) != 2 {
 		return errors.New("not enough messages")
 	}
-	if messages[0].ChatID != 1 || messages[1].ID != 2 || messages[0].Text != "first message" || messages[1].Text != "second message" {
-		return errors.New("messages list corrupt")
+	if messages[0].ChatID != 1 {
+		return fmt.Errorf("messages list corrupt msg 0, chat id should be 1, but %d", messages[0].ChatID)
+	}
+	if messages[0].Text != "first message" {
+		return fmt.Errorf("messages list corrupt msg 0, text incorrect: %s", messages[0].Text)
+	}
+	if messages[1].ID != 2 || messages[1].Text != "second message" {
+		return errors.New("messages list corrupt msg 1")
 	}
 
 	return nil

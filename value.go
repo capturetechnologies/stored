@@ -4,19 +4,22 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"
 )
 
 type valueRaw map[string][]byte
+type valueInterface map[string]interface{}
 
 // Value is representation of the fetched raw object from the db
 type Value struct {
-	object *Object
-	fetch  func()
-	//data   map[string]interface{}
-	raw valueRaw
-	err error
+	object  *Object
+	fetch   func()
+	raw     valueRaw
+	decoded valueInterface // decoded overwrites raw (used for primary)
+	err     error
 }
 
 func (v *Value) get() {
@@ -41,13 +44,34 @@ func (v *Value) fromRaw(raw valueRaw) {
 	}*/
 }
 
+func (v *Value) fromKeyTuple(keysTuple tuple.Tuple) {
+	v.decoded = valueInterface{}
+	if len(keysTuple) != len(v.object.primaryFields) {
+		fmt.Println("FromKeyValue: incorrect primary key")
+		return
+	}
+	for k, field := range v.object.primaryFields {
+		key := keysTuple[k]
+		v.decoded[field.Name] = key
+	}
+}
+
+// decodeBase should decode main part of the object
+func (v *Value) decodeBase(value []byte) {
+	// do nothing for the moment
+}
+
 // FromKeyValue pasrses key value from foundationdb
 func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 	v.raw = valueRaw{}
 	for _, row := range rows {
 		key, err := sub.Unpack(row.Key)
-		if err != nil || len(key) < 1 {
+		if err != nil {
 			fmt.Println("key in invalid", err)
+			continue
+		}
+		if len(key) == 0 { // empty row
+			v.decodeBase(row.Value)
 			continue
 		}
 		fieldName, ok := key[0].(string)
@@ -57,6 +81,14 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 		}
 		v.raw[fieldName] = row.Value
 	}
+
+	// getting primary fields
+	keysTuple, err := v.object.primary.Unpack(sub.FDBKey())
+	if err != nil {
+		fmt.Println("FromKeyValue: unpack key err", err)
+		return
+	}
+	v.fromKeyTuple(keysTuple)
 
 	// todelete
 	/*v.data = map[string]interface{}{}
@@ -136,6 +168,13 @@ func (v *Value) Reflect() (reflect.Value, error) {
 		val := field.ToInterface(binaryValue)
 		interfaceValue := reflect.ValueOf(val)
 		objField.Set(interfaceValue)
+	}
+	for key, interfaceValue := range v.decoded {
+		field, ok := v.object.fields[key]
+		if !ok {
+			continue
+		}
+		field.setTupleValue(value, interfaceValue)
 	}
 	return value, nil
 }

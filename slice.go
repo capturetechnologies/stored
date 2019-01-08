@@ -56,6 +56,11 @@ func (s *Slice) Each(cb func(item interface{})) {
 	}
 }
 
+// Len return number of elements in slice
+func (s *Slice) Len() int {
+	return len(s.values)
+}
+
 // GetIndexData return indexData slice of byte array
 /*func (s *Slice) GetIndexData() [][]byte {
 	return s.indexData

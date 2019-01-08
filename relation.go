@@ -296,21 +296,31 @@ func (r *Relation) GetClientsCount(hostOrID interface{}) *Promise {
 	return p
 }
 
-// GetClients fetch slice of client objects using host
-func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *Slice {
-	hostPrimary := r.host.getPrimaryTuple(objOrID)
+func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limit int, hosts bool) *Slice {
+	var obj *Object
+	var opposite *Object
+	var oppositeDir directory.DirectorySubspace
+	if hosts {
+		obj = r.host
+		opposite = r.client
+		oppositeDir = r.clientDir
+	} else {
+		obj = r.client
+		opposite = r.host
+		oppositeDir = r.hostDir
+	}
 
-	key := r.hostDir.Sub(hostPrimary...)
-	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		indexData := [][]byte{}
+	primaryKey := opposite.getPrimaryTuple(objOrID)
+	key := oppositeDir.Sub(primaryKey...)
+	resp, err := obj.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		start, end := key.FDBRangeKeys()
 		if from != nil {
-			start = key.Pack(r.client.getPrimaryTuple(from)) // add the last key fetched
+			start = key.Pack(obj.getPrimaryTuple(from)) // add the last key fetched
 		}
 		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
 			Limit: limit,
 		}).Iterator()
-		//needed := []fdb.RangeResult{}
+		indexData := [][]byte{}
 		needed := []*needObject{}
 		for iterator.Advance() {
 			kv, err := iterator.Get()
@@ -327,31 +337,25 @@ func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) 
 			if l < 1 {
 				panic("empty key")
 			}
-			id := keyTuple[l-1]
-			//key := r.client.primary.Sub(id)
-			needed = append(needed, r.client.need(tr, r.client.primary.Sub(id)))
-			//dataKeys = append(dataKeys, key)
+			//obj.need(tr, obj.sub(keyTuple))
+			needed = append(needed, obj.need(tr, obj.sub(keyTuple)))
 			indexData = append(indexData, kv.Value)
 		}
-		slice := r.client.wrapRange(needed)
-		if r.clientDataField != nil {
-			slice.fillFieldData(r.clientDataField, indexData)
+		slice := r.host.wrapRange(needed)
+		if r.hostDataField != nil {
+			slice.fillFieldData(r.hostDataField, indexData)
 		}
-		//slice.indexData = indexData
-		/*kv, err := FetchRange(tr, needed)
-		if err != nil {
-			fmt.Printf("Fetch range error: %v\n", err)
-			return nil, err
-		}
-		slice := r.client.wrapRange(kv, dataKeys)
-		slice.indexData = indexData*/
 		return slice, nil
 	})
 	if err != nil {
 		return &Slice{err: err}
 	}
-
 	return resp.(*Slice)
+}
+
+// GetClients fetch slice of client objects using host
+func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *Slice {
+	return r.getHostsOrClients(objOrID, from, limit, false)
 }
 
 func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, dataField *Field, sub subspace.Subspace, from interface{}, limit int) *SliceIDs {
@@ -406,55 +410,7 @@ func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) 
 
 // GetHosts fetch slice of client objects using host
 func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *Slice {
-	hostPrimary := r.client.getPrimaryTuple(objOrID)
-	key := r.clientDir.Sub(hostPrimary...)
-	resp, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		indexData := [][]byte{}
-		start, end := key.FDBRangeKeys()
-		if from != nil {
-			start = key.Pack(r.host.getPrimaryTuple(from)) // add the last key fetched
-		}
-		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
-			Limit: limit,
-		}).Iterator()
-		//needed := []fdb.RangeResult{}
-		needed := []*needObject{}
-		for iterator.Advance() {
-			kv, err := iterator.Get()
-			if err != nil {
-				fmt.Printf("Unable to read next value: %v\n", err)
-				return nil, err
-			}
-			keyTuple, err := key.Unpack(kv.Key)
-			if err != nil {
-				fmt.Printf("Unable to unpack index key: %v\n", err)
-				return nil, err
-			}
-			l := len(keyTuple)
-			if l < 1 {
-				panic("empty key")
-			}
-			r.host.need(tr, r.host.sub(keyTuple))
-			//key := r.host.primary.Sub(keyTuple...)
-			needed = append(needed, r.host.need(tr, r.host.sub(keyTuple)))
-			//dataKeys = append(dataKeys, key)
-			indexData = append(indexData, kv.Value)
-		}
-		slice := r.host.wrapRange(needed)
-		if r.hostDataField != nil {
-			slice.fillFieldData(r.hostDataField, indexData)
-		}
-		return slice, nil
-		/*kv, err := FetchRange(tr, needed)
-		if err != nil {
-			return nil, err
-		}
-		return r.host.wrapRange(kv, dataKeys), nil*/
-	})
-	if err != nil {
-		return &Slice{err: err}
-	}
-	return resp.(*Slice)
+	return r.getHostsOrClients(objOrID, from, limit, true)
 }
 
 // UpdateHostData writed new data from host object (host data could be )

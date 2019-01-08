@@ -149,14 +149,26 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 	}
 
+	fieldsWriten := 0
 	for _, field := range o.fields {
 		if field.UnStored {
+			continue
+		}
+		// primary fields should not be stored inside the object,
+		// because could be extraced from the key
+		if field.primary {
 			continue
 		}
 
 		value := input.GetBytes(field)
 		tr.Set(field.getKey(sub), value)
+		fieldsWriten++
 	}
+	if fieldsWriten == 0 {
+		// write empty field to be shure that object will be written
+		tr.Set(sub.FDBKey(), []byte{})
+	}
+
 	for _, index := range o.indexes {
 		//fmt.Println("WRITE index", primaryTuple, input)
 		err := index.Write(tr, primaryTuple, input, oldObject)

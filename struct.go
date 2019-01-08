@@ -84,6 +84,13 @@ func (s *Struct) Fill(o *Object, v *Value) {
 			//nothing to worry about
 		}
 	}
+	// decoded used to avoid unnecessary decode and encode
+	for fieldName, interfaceValue := range v.decoded {
+		field, ok := o.fields[fieldName]
+		if ok {
+			field.setTupleValue(s.value, interfaceValue)
+		}
+	}
 }
 
 // Get return field as interface

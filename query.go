@@ -183,7 +183,9 @@ func (q *Query) execute() interface{} {
 		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: limit, Reverse: q.reverse})
 		iterator := rangeResult.Iterator()
 		elem := valueRaw{}
-		res := []valueRaw{}
+		//res := []valueRaw{}
+
+		slice := Slice{}
 		var lastTuple tuple.Tuple
 		rowsNum := 0
 		for iterator.Advance() {
@@ -202,8 +204,14 @@ func (q *Query) execute() interface{} {
 			primaryTuple := fullTuple[:keyLen]
 
 			if lastTuple != nil && !reflect.DeepEqual(primaryTuple, lastTuple) {
+				value := Value{
+					object: q.object,
+				}
+				value.fromRaw(elem)
+				value.fromKeyTuple(primaryTuple)
+				slice.Append(&value)
 				// push to items here
-				res = append(res, elem)
+				//res = append(res, elem)
 				elem = valueRaw{}
 				rowsNum = 0
 			}
@@ -219,13 +227,19 @@ func (q *Query) execute() interface{} {
 			lastTuple = primaryTuple
 			rowsNum++
 		}
-		if rowsNum != 0 && (q.limit == 0 || len(res) < q.limit) {
-			res = append(res, elem)
+		if rowsNum != 0 && (q.limit == 0 || slice.Len() < q.limit) {
+			value := Value{
+				object: q.object,
+			}
+			value.fromRaw(elem)
+			value.fromKeyTuple(lastTuple)
+			slice.Append(&value)
+			//res = append(res, elem)
 		}
-		if len(res) == 0 {
+		/*if len(res) == 0 {
 			return &Slice{values: []*Value{}}, nil
 			//return nil, ErrNotFound
-		}
+		}*/
 
 		if !reflect.DeepEqual(q.from, lastTuple) {
 			q.next.from = lastTuple
@@ -234,7 +248,8 @@ func (q *Query) execute() interface{} {
 			q.next.from = nil
 		}
 
-		return q.object.wrapObjectList(res)
+		//return q.object.wrapObjectList(res)
+		return &slice, nil
 	})
 	if err != nil {
 		return &Slice{err: err}
