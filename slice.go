@@ -22,6 +22,9 @@ func (s *Slice) ScanAll(slicePointer interface{}) (e error) {
 		return s.err
 	}
 	valuePtr := reflect.ValueOf(slicePointer)
+	if valuePtr.Kind() != reflect.Ptr {
+		panic("ScanAll slice should be pointer")
+	}
 	value := valuePtr.Elem()
 
 	if value.Kind() != reflect.Slice {

@@ -413,8 +413,8 @@ func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *S
 	return r.getHostsOrClients(objOrID, from, limit, true)
 }
 
-// UpdateHostData writed new data from host object (host data could be )
-func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) *Promise {
+// SetHostData writed new data from host object (host data could be )
+func (r *Relation) SetHostData(hostObj interface{}, clientOrID interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostObj, clientOrID)
 	p := r.client.promise()
 	p.do(func() Chain {
@@ -440,8 +440,8 @@ func (r *Relation) UpdateHostData(hostObj interface{}, clientOrID interface{}) *
 	return p
 }
 
-// UpdateClientData writed new data from host object (host data could be )
-func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{}) *Promise {
+// SetClientData writed new data from host object (host data could be )
+func (r *Relation) SetClientData(hostOrID interface{}, clientObj interface{}) *Promise {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientObj)
 	p := r.client.promise()
 	p.do(func() Chain {
@@ -468,55 +468,72 @@ func (r *Relation) UpdateClientData(hostOrID interface{}, clientObj interface{})
 	return p
 }
 
-// UpdateData will atomicly update host and client index storage data using callback
-func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}, callback func()) *Promise {
+func (r *Relation) doUpdateData(hostObj interface{}, clientObj interface{}, callback func(), doHost, doClient bool) *Promise {
 	hostEditable := structEditable(hostObj)
 	clientEditable := structEditable(clientObj)
 	hostPrimary := hostEditable.getPrimary(r.host)
 	clientPrimary := clientEditable.getPrimary(r.client)
 
-	//hostPrimary, clientPrimary := r.getPrimary(hostObj, clientObj)
 	p := r.client.promise()
 	p.do(func() Chain {
-		hostDataGet := p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
-		clientDataGet := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		var hostDataGet, clientDataGet fdb.FutureByteSlice
+		if doHost {
+			hostDataGet = p.tr.Get(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary))
+		}
+		if doClient {
+			clientDataGet = p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary))
+		}
 		return func() Chain {
-			hostData, hostErr := hostDataGet.Get()
-			if hostErr != nil {
-				return p.fail(hostErr)
+			var err error
+			var hostData, clientData []byte
+			if doHost {
+				hostData, err = hostDataGet.Get()
+				if err != nil {
+					return p.fail(err)
+				}
+				if hostData == nil {
+					return p.fail(ErrNotFound)
+				}
+				hostEditable.setField(r.hostDataField, hostData)
 			}
-			clientData, clientErr := clientDataGet.Get()
-			if clientErr != nil {
-				return p.fail(clientErr)
+			if doClient {
+				clientData, err = clientDataGet.Get()
+				if err != nil {
+					return p.fail(err)
+				}
+				if clientData == nil {
+					return p.fail(ErrNotFound)
+				}
+				clientEditable.setField(r.clientDataField, clientData)
 			}
-			if hostData == nil || clientData == nil {
-				return p.fail(ErrNotFound)
-			}
-
-			//var hostVal, clientVal []byte
-			//var err error
-
-			hostEditable.setField(r.hostDataField, hostData)
-			clientEditable.setField(r.clientDataField, clientData)
 			callback()
-			hostVal := hostEditable.GetBytes(r.hostDataField)
-			clientVal := clientEditable.GetBytes(r.clientDataField)
-
-			/*hostVal, err = r.hostDataField.ToBytes(hostI)
-			if err != nil {
-				return p.fail(err)
+			if doHost {
+				hostVal := hostEditable.GetBytes(r.hostDataField)
+				p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
 			}
-			clientVal, err = r.clientDataField.ToBytes(clientI)
-			if err != nil {
-				return p.fail(err)
-			}*/
-
-			p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
-			p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+			if doClient {
+				clientVal := clientEditable.GetBytes(r.clientDataField)
+				p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+			}
 			return p.done(nil)
 		}
 	})
 	return p
+}
+
+// UpdateData will atomicly update host and client index storage data using callback
+func (r *Relation) UpdateData(hostObj interface{}, clientObj interface{}, callback func()) *Promise {
+	return r.doUpdateData(hostObj, clientObj, callback, true, true)
+}
+
+// UpdateClientData will atomicly update only client index storage data using callback
+func (r *Relation) UpdateClientData(hostObj interface{}, clientObj interface{}, callback func()) *Promise {
+	return r.doUpdateData(hostObj, clientObj, callback, false, true)
+}
+
+// UpdateHostData will atomicly update only host index storage data using callback
+func (r *Relation) UpdateHostData(hostObj interface{}, clientObj interface{}, callback func()) *Promise {
+	return r.doUpdateData(hostObj, clientObj, callback, true, false)
 }
 
 // SetData writed new data for both host and client index storages, return fail if object nor exist

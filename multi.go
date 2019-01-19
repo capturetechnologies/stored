@@ -39,6 +39,7 @@ func (m *MultiChain) execute() {
 			} else {
 				needObj.res.object = value.object
 				needObj.res.raw = value.raw
+				needObj.res.decoded = value.decoded
 			}
 		}
 		return nil, nil

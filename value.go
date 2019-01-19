@@ -47,7 +47,7 @@ func (v *Value) fromRaw(raw valueRaw) {
 func (v *Value) fromKeyTuple(keysTuple tuple.Tuple) {
 	v.decoded = valueInterface{}
 	if len(keysTuple) != len(v.object.primaryFields) {
-		fmt.Println("FromKeyValue: incorrect primary key")
+		fmt.Println("FromKeyValue: incorrect primary key", keysTuple, "when", len(v.object.primaryFields))
 		return
 	}
 	for k, field := range v.object.primaryFields {

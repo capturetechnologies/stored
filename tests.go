@@ -977,6 +977,37 @@ func testsGeoIndex(dir *Directory) error {
 	}
 
 	return nil
+}
+
+func testsSingleField(dir *Directory) error {
+	type row struct {
+		ID int `stored:"id"`
+	}
+	r := dir.Object("single_field", row{})
+	r.Primary("id")
+	dbRow := r.Done()
+	dbRow.Clear()
+
+	item := row{
+		ID: 25,
+	}
+	err := dbRow.Set(&item).Err()
+	if err != nil {
+		return err
+	}
+
+	items := []row{}
+	err = dbRow.List().ScanAll(&items)
+	if err != nil {
+		return err
+	}
+	if len(items) != 1 {
+		return fmt.Errorf("items len is incorrrect should be 1, but %d", len(items))
+	}
+	if items[0].ID != 25 {
+		return fmt.Errorf("item id is incorrrect should be 25, but %d", items[0].ID)
+	}
+	return nil
 
 }
 
@@ -1037,5 +1068,7 @@ func TestsRun(db *Cluster) {
 	assert("n2n_client_counter", testsN2NClientCounter(dir))
 
 	assert("geo_index", testsGeoIndex(dir))
+
+	assert("single_field", testsSingleField(dir))
 	fmt.Println("elapsed", time.Since(start))
 }

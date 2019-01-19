@@ -110,6 +110,22 @@ func (f *Field) isEmpty(value interface{}) bool {
 	switch f.Kind { // slices and maps will be nil if not set
 	case reflect.String:
 		return "" == value
+	case reflect.Int:
+		return 0 == value
+	case reflect.Int32:
+		return int32(0) == value
+	case reflect.Int64:
+		return int64(0) == value
+	case reflect.Uint:
+		return uint(0) == value
+	case reflect.Uint32:
+		return uint32(0) == value
+	case reflect.Uint64:
+		return uint64(0) == value
+	case reflect.Float32:
+		return float32(0.0) == value
+	case reflect.Float64:
+		return float64(0.0) == value
 	default:
 		return false
 	}
@@ -147,6 +163,12 @@ func (f *Field) setTupleValue(value reflect.Value, interfaceValue interface{}) {
 	switch objField.Kind() {
 	case reflect.Int: // tuple store int as int64
 		interfaceValue = int(interfaceValue.(int64))
+	case reflect.Uint8:
+		bytes := interfaceValue.([]uint8)
+		if len(bytes) != 1 {
+			panic("incorrect key tuple")
+		}
+		interfaceValue = bytes[0]
 	}
 	objField.Set(reflect.ValueOf(interfaceValue))
 }

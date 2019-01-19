@@ -14,15 +14,25 @@ import (
 
 // Index represend all indexes sored has
 type Index struct {
-	Name   string
-	Unique bool
-	Geo    int // geo precision used to
-	dir    directory.DirectorySubspace
-	object *Object
-	fields []*Field
+	Name     string
+	Unique   bool
+	Geo      int // geo precision used to
+	dir      directory.DirectorySubspace
+	object   *Object
+	optional bool
+	fields   []*Field
 	//field  *Field
 	//secondary *Field
 	handle func(interface{}) Key
+}
+
+func (i *Index) isEmpty(input *Struct) bool {
+	for _, field := range i.fields {
+		if !field.isEmpty(input.Get(field)) {
+			return false
+		}
+	}
+	return true
 }
 
 // getKey will return index tuple
@@ -74,6 +84,9 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 			}
 			i.Delete(tr, primaryTuple, toDelete)
 		}
+	}
+	if i.optional && i.isEmpty(input) { // no need to delete any inex than
+		return nil
 	}
 	// nil means should not index this object
 	if key == nil {

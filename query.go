@@ -1,6 +1,7 @@
 package stored
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -198,7 +199,8 @@ func (q *Query) execute() interface{} {
 				return nil, err
 			}
 
-			if len(fullTuple) <= keyLen {
+			if len(fullTuple) < keyLen {
+				fmt.Println("data corrupt", len(fullTuple), "vs", keyLen)
 				return nil, ErrDataCorrupt
 			}
 			primaryTuple := fullTuple[:keyLen]
@@ -208,7 +210,7 @@ func (q *Query) execute() interface{} {
 					object: q.object,
 				}
 				value.fromRaw(elem)
-				value.fromKeyTuple(primaryTuple)
+				value.fromKeyTuple(lastTuple)
 				slice.Append(&value)
 				// push to items here
 				//res = append(res, elem)
@@ -219,11 +221,13 @@ func (q *Query) execute() interface{} {
 			if len(fieldsKey) > 1 {
 				q.object.panic("nested fields not yet supported")
 			}
-			keyName, ok := fieldsKey[0].(string)
-			if !ok {
-				q.object.panic("invalid key, not string")
+			if len(fieldsKey) == 1 {
+				keyName, ok := fieldsKey[0].(string)
+				if !ok {
+					q.object.panic("invalid key, not string")
+				}
+				elem[keyName] = kv.Value
 			}
-			elem[keyName] = kv.Value
 			lastTuple = primaryTuple
 			rowsNum++
 		}

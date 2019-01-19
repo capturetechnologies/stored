@@ -282,6 +282,13 @@ func (ob *ObjectBuilder) Index(names ...string) *ObjectBuilder {
 	return ob
 }
 
+// IndexOptional is the simple index which will be written only if field is not empty
+func (ob *ObjectBuilder) IndexOptional(names ...string) *ObjectBuilder {
+	index := ob.addFieldIndex(names)
+	index.optional = true
+	return ob
+}
+
 // FastIndex will set index storing copy of object, performing denormalisation
 func (ob *ObjectBuilder) FastIndex(names ...string) *ObjectBuilder {
 	ob.mux.Lock()

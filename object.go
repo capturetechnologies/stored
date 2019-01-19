@@ -173,6 +173,7 @@ func (o *Object) doWrite(tr fdb.Transaction, sub subspace.Subspace, primaryTuple
 		//fmt.Println("WRITE index", primaryTuple, input)
 		err := index.Write(tr, primaryTuple, input, oldObject)
 		if err != nil {
+			fmt.Println("INDEX WRITE ERROR", index.Name, err)
 			return err
 		}
 	}
@@ -457,6 +458,7 @@ func (o *Object) Add(data interface{}) *PromiseErr {
 				return p.fail(err)
 			}
 			if sub.Contains(firstKey) {
+				fmt.Println("ALREADY EXIST PRIMARY KEY", firstKey)
 				return p.fail(ErrAlreadyExist)
 			}
 
