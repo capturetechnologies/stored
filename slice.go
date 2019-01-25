@@ -70,8 +70,9 @@ func (s *Slice) Len() int {
 }*/
 
 func (s *Slice) fillFieldData(field *Field, indexData [][]byte) {
-	for k, value := range s.values {
+	for k := range s.values {
 		data := indexData[k]
-		value.raw[field.Name] = data
+		s.values[k].raw[field.Name] = data
+		//value.raw[field.Name] = data
 	}
 }

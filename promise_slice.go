@@ -14,3 +14,13 @@ func (p *PromiseSlice) ScanAll(slicePointer interface{}) error {
 	slice := res.(*Slice)
 	return slice.ScanAll(slicePointer)
 }
+
+// Slice will return slice pointer
+func (p *PromiseSlice) Slice() *Slice {
+	res, err := p.transact()
+	if err != nil {
+		return &Slice{err: err}
+	}
+	slice := res.(*Slice)
+	return slice
+}

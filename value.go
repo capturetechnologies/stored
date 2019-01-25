@@ -157,6 +157,7 @@ func (v *Value) Reflect() (reflect.Value, error) {
 	for key, binaryValue := range v.raw {
 		field, ok := v.object.fields[key]
 		if !ok {
+			fmt.Println("field not found", key, "of object", v.object.name)
 			continue
 		}
 		objField := value.Field(field.Num)
@@ -165,6 +166,7 @@ func (v *Value) Reflect() (reflect.Value, error) {
 			continue
 		}
 
+		//fmt.Println("filling interface", binaryValue)
 		val := field.ToInterface(binaryValue)
 		interfaceValue := reflect.ValueOf(val)
 		objField.Set(interfaceValue)

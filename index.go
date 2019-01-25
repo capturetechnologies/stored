@@ -130,7 +130,7 @@ func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, key tuple.T
 	}
 }
 
-func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error) {
+func (i *Index) getIterator(tr fdb.ReadTransaction, q *Query) (subspace.Subspace, *fdb.RangeIterator) {
 	if i.Unique {
 		i.object.panic("index is unique (lists not supported)")
 	}
@@ -155,6 +155,12 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 	r := fdb.KeyRange{Begin: start, End: end}
 	rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: q.limit, Reverse: q.reverse})
 	iterator := rangeResult.Iterator()
+	return sub, iterator
+}
+
+// getList will fetch and request all the objects using the index
+func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error) {
+	sub, iterator := i.getIterator(tr, q)
 
 	primaryLen := len(i.object.primaryFields)
 	values := []*needObject{}
@@ -175,6 +181,33 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		values = append(values, i.object.need(tr, i.object.sub(key)))
 	}
 	return values, nil
+}
+
+// getPrimariesList will fetch just an list of primaries
+func (i *Index) getPrimariesList(tr fdb.ReadTransaction, q *Query) (*Slice, error) {
+	sub, iterator := i.getIterator(tr, q)
+
+	primaryLen := len(i.object.primaryFields)
+	values := []*Value{}
+	for iterator.Advance() {
+		kv, err := iterator.Get()
+		if err != nil {
+			return nil, err
+		}
+		fullTuple, err := sub.Unpack(kv.Key)
+		if err != nil {
+			return nil, err
+		}
+		if len(fullTuple)-primaryLen < 0 {
+			return nil, errors.New("invalid data: key too short")
+		}
+		key := fullTuple[len(fullTuple)-primaryLen:]
+		value := Value{object: i.object}
+		value.fromKeyTuple(key)
+
+		values = append(values, &value)
+	}
+	return &Slice{values: values}, nil
 }
 
 func (i *Index) getPrimary(tr fdb.ReadTransaction, indexKey tuple.Tuple) (subspace.Subspace, error) {

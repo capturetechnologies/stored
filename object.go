@@ -782,9 +782,9 @@ func (o *Object) ListAll() *Query {
 }
 
 // Use is an index selector for query building
-func (o *Object) Use(index string) *Query {
+func (o *Object) Use(indexFieldNames ...string) *Query {
 	query := Query{object: o}
-	return query.Use(index)
+	return query.Use(indexFieldNames...)
 }
 
 // Reindex will go around all data and delete add every row

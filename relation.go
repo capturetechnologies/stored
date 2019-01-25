@@ -343,7 +343,11 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 		}
 		slice := r.host.wrapRange(needed)
 		if r.hostDataField != nil {
-			slice.fillFieldData(r.hostDataField, indexData)
+			if hosts {
+				slice.fillFieldData(r.hostDataField, indexData)
+			} else {
+				slice.fillFieldData(r.clientDataField, indexData)
+			}
 		}
 		return slice, nil
 	})

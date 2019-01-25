@@ -22,19 +22,10 @@ func (s *Struct) setField(field *Field, data []byte) {
 			if len(data) == 0 {
 				return
 			}
-			fmt.Println("Pointer problem fetched", len(data), string(data))
-			fmt.Println("is NIL here")
-			/*t := p.Value.Type()
-			var isPointer bool
-			if t.Kind() == reflect.Ptr {
-				if len(data) == 0 {
-					return reflect.Zero(t).Interface()
-				}
-				t = t.Elem()
-				isPointer = true
-			}
+			// This code is working in main case
+			t := field.Value.Type().Elem()
 			value := reflect.New(t)
-			objField.Set(value.Pointer())*/
+			objField.Set(value) // creating empty object to fill it below
 		}
 
 	}
