@@ -342,25 +342,6 @@ func (o *Object) IncGetField(objOrID interface{}, fieldName string, incVal inter
 		}
 	})
 	return p
-
-	/*sub := o.Subspace(objOrID)
-	res, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
-		incKey := sub.Pack(tuple.Tuple{field.Name})
-		val, err := field.ToBytes(incVal)
-		if err != nil {
-			return nil, err
-		}
-		tr.Add(incKey, val)
-		bytes, err := tr.Get(incKey).Get()
-		if err != nil {
-			return nil, err
-		}
-		return field.ToInterface(bytes), nil
-	})
-	return &Var{
-		data: res,
-		err:  err,
-	}*/
 }
 
 // UpdateField updates object field via callback with old value
@@ -403,29 +384,41 @@ func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
 	p := o.promiseErr()
 	p.do(func() Chain {
 		bytesValue := input.GetBytes(field)
-		sub := input.getSubspace(o)
-		key := sub.Pack(tuple.Tuple{field.Name})
-		//fieldGet := p.tr.Get(key)
+		//sub := input.getSubspace(o)
+		primaryTuple := input.getPrimary(o)
+		sub := o.sub(primaryTuple)
 
-		isSet := p.tr.GetKey(fdb.FirstGreaterThan(sub))
+		key := sub.Pack(tuple.Tuple{field.Name})
+
+		//isSet := p.tr.GetKey(fdb.FirstGreaterThan(sub))
+		needed := o.need(p.tr, sub)
 
 		return func() Chain { // better to get first key
-			firstKey, err := isSet.Get()
+			/*firstKey, err := isSet.Get()
 			if err != nil {
 				return p.fail(err)
 			}
 			if !sub.Contains(firstKey) {
 				return p.fail(ErrNotFound)
-			}
-			/*val, err := fieldGet.Get()
+			}*/
+			value, err := needed.fetch()
 			if err != nil {
 				return p.fail(err)
 			}
-			if val == nil {
-				return p.fail(ErrNotFound)
-			}*/
-			//fmt.Println("field SET", o.name, field.Name, key, bytesValue)
+			var oldObject *Struct
+			oldObject = structAny(value.Interface())
+
 			p.tr.Set(key, bytesValue)
+
+			for _, index := range o.indexes {
+				for _, indexField := range index.fields {
+					if indexField == field {
+						fmt.Println("set field write index")
+						index.Write(p.tr, primaryTuple, input, oldObject)
+						break
+					}
+				}
+			}
 			return p.ok()
 		}
 	})

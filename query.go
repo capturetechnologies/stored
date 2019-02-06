@@ -204,7 +204,11 @@ func (q *Query) execute() *PromiseSlice {
 			limit++
 		}
 
-		rangeResult := p.readTr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: limit, Reverse: q.reverse})
+		rangeResult := p.readTr.GetRange(r, fdb.RangeOptions{
+			//Mode: fdb.StreamingModeWantAll,
+			Limit:   limit,
+			Reverse: q.reverse,
+		})
 		iterator := rangeResult.Iterator()
 		elem := valueRaw{}
 		//res := []valueRaw{}
@@ -271,136 +275,9 @@ func (q *Query) execute() *PromiseSlice {
 			q.next.from = nil
 		}
 
-		//return q.object.wrapObjectList(res)
 		return p.done(&slice)
 	})
 	return p
-
-	// Old one
-	/*resp, err := q.object.db.ReadTransact(func(tr fdb.ReadTransaction) (ret interface{}, e error) {
-		tr = tr.Snapshot()
-
-		if q.index != nil { // select using index
-			if q.onlyPrimary {
-				return q.index.getPrimariesList(tr, q)
-			}
-			values, err := q.index.getList(tr, q)
-			if err != nil {
-				return nil, err
-			}
-			slice := Slice{}
-			for _, needed := range values {
-				v, err := needed.fetch()
-				if err != nil {
-					return nil, err
-				}
-				slice.Append(v)
-			}
-			return &slice, nil
-		}
-
-		var sub subspace.Subspace
-		sub = q.object.primary
-		if q.primary != nil {
-			sub = sub.Sub(q.primary...)
-		}
-		start, end := sub.FDBRangeKeys()
-		if q.from != nil {
-			if q.reverse {
-				end = sub.Pack(q.from)
-			} else {
-				start = sub.Pack(q.from)
-			}
-		}
-		if q.to != nil {
-			if q.reverse {
-				start = sub.Pack(q.to)
-			} else {
-				end = sub.Pack(q.to)
-			}
-		}
-
-		r := fdb.KeyRange{Begin: start, End: end}
-
-		limit := q.object.getKeyLimit(q.limit)
-		if q.next.started {
-			limit++
-		}
-
-		rangeResult := tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll, Limit: limit, Reverse: q.reverse})
-		iterator := rangeResult.Iterator()
-		elem := valueRaw{}
-		//res := []valueRaw{}
-
-		slice := Slice{}
-		var lastTuple tuple.Tuple
-		rowsNum := 0
-		for iterator.Advance() {
-			kv, err := iterator.Get()
-			if err != nil {
-				return nil, err
-			}
-			fullTuple, err := q.object.primary.Unpack(kv.Key)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(fullTuple) < keyLen {
-				fmt.Println("data corrupt", len(fullTuple), "vs", keyLen)
-				return nil, ErrDataCorrupt
-			}
-			primaryTuple := fullTuple[:keyLen]
-
-			if lastTuple != nil && !reflect.DeepEqual(primaryTuple, lastTuple) {
-				value := Value{
-					object: q.object,
-				}
-				value.fromRaw(elem)
-				value.fromKeyTuple(lastTuple)
-				slice.Append(&value)
-				// push to items here
-				//res = append(res, elem)
-				elem = valueRaw{}
-				rowsNum = 0
-			}
-			fieldsKey := fullTuple[keyLen:]
-			if len(fieldsKey) > 1 {
-				q.object.panic("nested fields not yet supported")
-			}
-			if len(fieldsKey) == 1 {
-				keyName, ok := fieldsKey[0].(string)
-				if !ok {
-					q.object.panic("invalid key, not string")
-				}
-				elem[keyName] = kv.Value
-			}
-			lastTuple = primaryTuple
-			rowsNum++
-		}
-		if rowsNum != 0 && (q.limit == 0 || slice.Len() < q.limit) {
-			value := Value{
-				object: q.object,
-			}
-			value.fromRaw(elem)
-			value.fromKeyTuple(lastTuple)
-			slice.Append(&value)
-			//res = append(res, elem)
-		}
-
-		if !reflect.DeepEqual(q.from, lastTuple) {
-			q.next.from = lastTuple
-			//q.next.from = incrementTuple(lastTuple)
-		} else {
-			q.next.from = nil
-		}
-
-		//return q.object.wrapObjectList(res)
-		return &slice, nil
-	})
-	if err != nil {
-		return &Slice{err: err}
-	}
-	return resp*/
 }
 
 // Next sets from identifier from nextFrom; return true if more data could be fetched

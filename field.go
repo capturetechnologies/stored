@@ -126,6 +126,8 @@ func (f *Field) isEmpty(value interface{}) bool {
 		return float32(0.0) == value
 	case reflect.Float64:
 		return float64(0.0) == value
+	case reflect.Bool:
+		return false == value
 	default:
 		return false
 	}

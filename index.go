@@ -3,6 +3,7 @@ package stored
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -109,6 +110,7 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 		}
 	} else {
 		fullKey := append(key, primaryTuple...)
+		fmt.Println(i.Name, "INDEXKEY", fullKey)
 		tr.Set(i.dir.Pack(fullKey), []byte{})
 	}
 	return nil

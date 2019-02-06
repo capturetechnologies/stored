@@ -11,14 +11,15 @@ type Chain func() Chain
 
 // Promise is an basic promise object
 type Promise struct {
-	db       *fdb.Database
-	readTr   fdb.ReadTransaction
-	tr       fdb.Transaction
-	chain    Chain
-	after    func() PromiseAny
-	err      error
-	readOnly bool
-	resp     interface{}
+	db        *fdb.Database
+	readTr    fdb.ReadTransaction
+	tr        fdb.Transaction
+	chain     Chain
+	after     func() PromiseAny
+	err       error
+	readOnly  bool
+	resp      interface{}
+	confirmed bool
 }
 
 // PromiseAny describes any type of promise
@@ -79,24 +80,31 @@ func (p *Promise) clear() {
 	p.resp = nil
 }
 
-func (p *Promise) transact() (interface{}, error) {
+func (p *Promise) transact() (resp interface{}, err error) {
 	if p.readTr != nil {
 		p.clear()
-		return p.execute()
+		resp, err = p.execute()
+		p.confirmed = true
+		return
 	}
 	if p.readOnly {
-		return p.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
+		resp, err = p.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
 			p.clear() // since transaction could be repeated - should clear everything
 			p.readTr = tr.Snapshot()
 			return p.execute()
 		})
+		p.confirmed = true
+		return
+
 	}
-	return p.db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+	resp, err = p.db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		p.clear() // clear tmp data in case if transaction resended
 		p.tr = tr
 		p.readTr = tr
 		return p.execute()
 	})
+	p.confirmed = true
+	return
 }
 
 // Err will execute the promise and return error

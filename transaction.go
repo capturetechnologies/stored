@@ -66,6 +66,7 @@ func (t *Transaction) transact() {
 			t.readTr = tr.Snapshot()
 			return t.execute()
 		})
+		t.confirm()
 	} else {
 		_, t.err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 			t.clear()
@@ -73,6 +74,14 @@ func (t *Transaction) transact() {
 			t.readTr = tr
 			return t.execute()
 		})
+		t.confirm()
+	}
+}
+
+// will set all promises as confirmed
+func (t *Transaction) confirm() {
+	for _, promise := range t.Promises {
+		promise.confirmed = true
 	}
 }
 

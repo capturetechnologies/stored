@@ -7,20 +7,24 @@ type PromiseSlice struct {
 
 // ScanAll values inside promise
 func (p *PromiseSlice) ScanAll(slicePointer interface{}) error {
-	res, err := p.transact()
-	if err != nil {
-		return err
+	if !p.confirmed {
+		p.transact()
 	}
-	slice := res.(*Slice)
+	if p.err != nil {
+		return p.err
+	}
+	slice := p.resp.(*Slice)
 	return slice.ScanAll(slicePointer)
 }
 
 // Slice will return slice pointer
 func (p *PromiseSlice) Slice() *Slice {
-	res, err := p.transact()
-	if err != nil {
-		return &Slice{err: err}
+	if !p.confirmed {
+		p.transact()
 	}
-	slice := res.(*Slice)
+	if p.err != nil {
+		return &Slice{err: p.err}
+	}
+	slice := p.resp.(*Slice)
 	return slice
 }
