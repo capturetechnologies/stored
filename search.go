@@ -1,0 +1,17 @@
+package stored
+
+import "strings"
+
+// searchGetInputWords will fetch list of words found in input fields
+func searchGetInputWords(index *Index, input *Struct) (words []string) {
+	for _, field := range index.fields {
+		str := input.Get(field).(string)
+		words = append(words, searchSplit(str)...)
+	}
+	return
+}
+
+func searchSplit(str string) (words []string) {
+	words = strings.Split(str, " ")
+	return
+}

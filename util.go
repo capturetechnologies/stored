@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+	"math/rand"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -21,6 +23,18 @@ var ErrAlreadyExist = errors.New("This object already exist")
 
 // Key is main type for byte array keys
 type Key = []byte
+
+// KeyTuple is the list of keys
+type KeyTuple []KeyElement
+
+// A KeyElement is one of the types that may be encoded in FoundationDB
+// tuples. Although the Go compiler cannot enforce this, it is a programming
+// error to use an unsupported types as a KeyElement (and will typically
+// result in a runtime panic).
+//
+// The valid types for KeyElement are []byte (or fdb.KeyConvertible), string,
+// int64 (or int), float, double, bool, UUID, Tuple, and nil.
+type KeyElement interface{}
 
 // GenIDType is type for ID generators
 type GenIDType int
@@ -154,4 +168,11 @@ func Distance(lat1, lon1, lat2, lon2 float64) float64 {
 	h := hsin(la2-la1) + math.Cos(la1)*math.Cos(la2)*hsin(lo2-lo1)
 
 	return 2 * r * math.Asin(math.Sqrt(h))
+}
+
+// ID64 will return pseudounique ID with int64
+func ID64() (id int64) {
+	id = time.Now().UnixNano()
+	id += rand.Int63n(1000000) - 500000
+	return
 }

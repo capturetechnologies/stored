@@ -216,8 +216,8 @@ func (o *Object) promiseInt64() *Promise {
 	}
 }
 
-// Update writes data, only if row already exist
-func (o *Object) Update(data interface{}) *PromiseErr {
+// Write writes data, only if row already exist
+func (o *Object) Write(data interface{}) *PromiseErr {
 	input := structAny(data)
 	p := o.promiseErr()
 	p.do(func() Chain {
@@ -249,6 +249,48 @@ func (o *Object) Update(data interface{}) *PromiseErr {
 		}
 	})
 
+	return p
+}
+
+// Update writes data, only if row already exist
+func (o *Object) Update(data interface{}, callback func() error) *PromiseErr {
+	input := structEditable(data)
+	p := o.promiseErr()
+	p.do(func() Chain {
+		//primaryTuple := o.getPrimaryTuple(objOrID)
+		//sub := o.primary.Sub(primaryTuple...)
+		primaryTuple := input.getPrimary(o)
+
+		// delete all indexes data
+		sub := o.sub(primaryTuple)
+		needed := o.need(p.tr, sub)
+		//res := needObject(p.tr, sub)
+		return func() Chain {
+			value, err := needed.fetch()
+			input.Fill(o, value)
+			if err == ErrNotFound {
+				return p.fail(ErrNotFound)
+			}
+			if err != nil {
+				return p.fail(err)
+			}
+			err = value.Err()
+			if err != nil {
+				return p.fail(err)
+			}
+			prevInterface := value.Interface()
+			oldObject := structAny(prevInterface)
+			err = callback()
+			if err != nil {
+				return p.fail(err)
+			}
+			err = o.doWrite(p.tr, sub, primaryTuple, input, oldObject, false)
+			if err != nil {
+				return p.fail(err)
+			}
+			return p.ok()
+		}
+	})
 	return p
 }
 

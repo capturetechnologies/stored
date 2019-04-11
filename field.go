@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/capturetechnologies/stored/packed"
 
@@ -216,8 +215,9 @@ func (f *Field) GenerateID() []byte {
 		var id int64
 		switch f.GenID {
 		case GenIDDate:
-			id = time.Now().UnixNano()
-			id += rand.Int63n(1000000) - 500000
+			id = ID64()
+			//id = time.Now().UnixNano()
+			//id += rand.Int63n(1000000) - 500000
 		case GenIDRandom:
 			id = rand.Int63()
 		default:

@@ -155,11 +155,14 @@ func (d *Directory) Write(callback func(*Transaction)) *Transaction {
 func (d *Directory) Parallel(tasks ...PromiseAny) *Transaction {
 	db := &d.Cluster.db
 	t := Transaction{
-		Promises: []*Promise{},
-		db:       db,
+		tasks: []transactionTask{},
+		db:    db,
 	}
 	for _, task := range tasks {
-		t.Promises = append(t.Promises, task.self())
+		t.tasks = append(t.tasks, transactionTask{
+			promise: task.self(),
+			check:   true,
+		})
 	}
 	return &t
 }

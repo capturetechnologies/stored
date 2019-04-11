@@ -183,32 +183,33 @@ func (r *Relation) Add(hostOrID interface{}, clientOrID interface{}) *PromiseErr
 }
 
 // Set writes new relation beween objects, you could use objects or values with same types as primary key
-func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) error {
+func (r *Relation) Set(hostOrID interface{}, clientOrID interface{}) *PromiseErr {
 	hostPrimary, clientPrimary := r.getPrimary(hostOrID, clientOrID)
-	_, err := r.host.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	p := r.host.promiseErr()
+	p.do(func() Chain {
 		if r.counter { // increment if not exists
-			val, err := tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
+			val, err := p.tr.Get(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary)).Get()
 			if err != nil {
-				return nil, err
+				return p.fail(err)
 			}
 			if val == nil { // not exists increment here
-				tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
+				p.tr.Add(r.infoDir.Sub(keyRelHostCount).Pack(hostPrimary), countInc)
 				//tr.Add(r.infoDir.Sub(keyRelClientCount).Pack(clientPrimary), countInc)
-				r.incClientCounter(clientPrimary, tr, countInc)
+				r.incClientCounter(clientPrimary, p.tr, countInc)
 			}
 		}
 
 		// getting data to store inside relation kv
 		hostVal, clientVal, dataErr := r.getData(hostOrID, clientOrID)
 		if dataErr != nil {
-			return nil, dataErr
+			return p.fail(dataErr)
 		}
 
-		tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
-		tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
-		return
+		p.tr.Set(r.hostDir.Sub(hostPrimary...).Pack(clientPrimary), clientVal)
+		p.tr.Set(r.clientDir.Sub(clientPrimary...).Pack(hostPrimary), hostVal)
+		return p.ok()
 	})
-	return err
+	return p
 }
 
 // Delete removes relation between objects
@@ -296,7 +297,7 @@ func (r *Relation) GetClientsCount(hostOrID interface{}) *Promise {
 	return p
 }
 
-func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limit int, hosts bool) *Slice {
+func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limit int, hosts bool) *PromiseSlice {
 	var obj *Object
 	var opposite *Object
 	var oppositeDir directory.DirectorySubspace
@@ -310,14 +311,16 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 		oppositeDir = r.hostDir
 	}
 
-	primaryKey := opposite.getPrimaryTuple(objOrID)
-	key := oppositeDir.Sub(primaryKey...)
-	resp, err := obj.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+	p := r.host.promiseSlice()
+	p.doRead(func() Chain {
+		primaryKey := opposite.getPrimaryTuple(objOrID)
+		key := oppositeDir.Sub(primaryKey...)
+
 		start, end := key.FDBRangeKeys()
 		if from != nil {
 			start = key.Pack(obj.getPrimaryTuple(from)) // add the last key fetched
 		}
-		iterator := tr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
+		iterator := p.readTr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
 			Limit: limit,
 		}).Iterator()
 		indexData := [][]byte{}
@@ -326,19 +329,19 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 			kv, err := iterator.Get()
 			if err != nil {
 				fmt.Printf("Unable to read next value: %v\n", err)
-				return nil, err
+				return p.fail(err)
 			}
 			keyTuple, err := key.Unpack(kv.Key)
 			if err != nil {
 				fmt.Printf("Unable to unpack index key: %v\n", err)
-				return nil, err
+				return p.fail(err)
 			}
 			l := len(keyTuple)
 			if l < 1 {
 				panic("empty key")
 			}
 			//obj.need(tr, obj.sub(keyTuple))
-			needed = append(needed, obj.need(tr, obj.sub(keyTuple)))
+			needed = append(needed, obj.need(p.readTr, obj.sub(keyTuple)))
 			indexData = append(indexData, kv.Value)
 		}
 		slice := r.host.wrapRange(needed)
@@ -349,16 +352,14 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 				slice.fillFieldData(r.clientDataField, indexData)
 			}
 		}
-		return slice, nil
+		return p.done(slice)
 	})
-	if err != nil {
-		return &Slice{err: err}
-	}
-	return resp.(*Slice)
+
+	return p
 }
 
 // GetClients fetch slice of client objects using host
-func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *Slice {
+func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *PromiseSlice {
 	return r.getHostsOrClients(objOrID, from, limit, false)
 }
 
@@ -413,7 +414,7 @@ func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) 
 }
 
 // GetHosts fetch slice of client objects using host
-func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *Slice {
+func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *PromiseSlice {
 	return r.getHostsOrClients(objOrID, from, limit, true)
 }
 

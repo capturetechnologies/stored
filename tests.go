@@ -102,6 +102,43 @@ func testsSetGet(smUser *Object) error {
 	return nil
 }
 
+func testsUpdate(smUser *Object) error {
+	err := smUser.Set(user{
+		ID:    80,
+		Login: "John80",
+	}).Err()
+	if err != nil {
+		return err
+	}
+
+	u := user{ID: 80}
+	err = smUser.Update(&u, func() error {
+		if u.Login == "John80" {
+			u.Login = "John81"
+		} else {
+			return errors.New("update data is incorrect")
+		}
+		return nil
+	}).Err()
+	if err != nil {
+		return err
+	}
+
+	newUser := user{ID: 80}
+	err = smUser.Get(&newUser).Err()
+	if err != nil {
+		return err
+	}
+	if newUser.Login == "John80" {
+		return errors.New("User update failed")
+	}
+	if newUser.Login != "John81" {
+		return errors.New("User not fetched")
+	}
+
+	return nil
+}
+
 func testsSetGetPerformance(dir *Directory) error {
 	smUser := dir.Object("small_user", user{}).Done()
 	bgUser := dir.Object("big_user", bigUser{}).Done()
@@ -326,7 +363,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("Check n2n function is failed, true instead of false")
 	}
 
-	err = n2nUserChat.Set(user1, chat1) // add using object
+	err = n2nUserChat.Set(user1, chat1).Err() // add using object
 	if err != nil {
 		return err
 	}
@@ -339,27 +376,27 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("Check n2n function is failed, false instead of true")
 	}
 
-	err = n2nUserChat.Set(user1, chatToDelete)
+	err = n2nUserChat.Set(user1, chatToDelete).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user1, chat2.ID) // add using clients primary id
+	err = n2nUserChat.Set(user1, chat2.ID).Err() // add using clients primary id
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user1, chat2) // second update same relation should not increment counter
+	err = n2nUserChat.Set(user1, chat2).Err() // second update same relation should not increment counter
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user1.ID, chat3) // add using hosts primary id
+	err = n2nUserChat.Set(user1.ID, chat3).Err() // add using hosts primary id
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user2, chat1) // add using object
+	err = n2nUserChat.Set(user2, chat1).Err() // add using object
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user3, chat1) // add using object
+	err = n2nUserChat.Set(user3, chat1).Err() // add using object
 	if err != nil {
 		return err
 	}
@@ -512,19 +549,19 @@ func testsN2NData(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error
 		return err
 	}
 
-	err = n2nUserChat.Set(user1, chat1)
+	err = n2nUserChat.Set(user1, chat1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user1, chat2)
+	err = n2nUserChat.Set(user1, chat2).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user2, chat1)
+	err = n2nUserChat.Set(user2, chat1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nUserChat.Set(user2, chat2)
+	err = n2nUserChat.Set(user2, chat2).Err()
 	if err != nil {
 		return err
 	}
@@ -698,11 +735,11 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 	if err != nil {
 		return err
 	}
-	err = n2nMessageUser.Set(msg, user1)
+	err = n2nMessageUser.Set(msg, user1).Err()
 	if err != nil {
 		return err
 	}
-	err = n2nMessageUser.Set(msg, user2)
+	err = n2nMessageUser.Set(msg, user2).Err()
 	if err != nil {
 		return err
 	}
@@ -754,7 +791,7 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 	if err != nil {
 		return err
 	}
-	err = userUser.Set(user1, user2)
+	err = userUser.Set(user1, user2).Err()
 	if err != nil {
 		return err
 	}
@@ -1051,7 +1088,9 @@ func TestsRun(db *Cluster) {
 	dir.Clear()
 	assert("Clear", testsClear(dir))
 	start := time.Now()
-	assert("SetGet", testsSetGet(smUser.Done()))
+	userDB := smUser.Done()
+	assert("SetGet", testsSetGet(userDB))
+	assert("Update", testsUpdate(userDB))
 	assert("Index", testsIndex(smUserIndex.Done()))
 	assert("Unique", testsUnique(smUserUnique.Done()))
 	assert("AutoIncrement", testsAutoIncrement(userAutoIncrement.Done()))

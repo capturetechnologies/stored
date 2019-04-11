@@ -1,11 +1,20 @@
 package stored
 
-import "github.com/apple/foundationdb/bindings/go/src/fdb"
+import (
+	"fmt"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+)
+
+type transactionTask struct {
+	promise *Promise
+	check   bool
+}
 
 // Transaction allow you to join several Promises into one transaction
 // also parallel executes promises effectively trying to parallel where its possible
 type Transaction struct {
-	Promises []*Promise
+	tasks    []transactionTask
 	db       *fdb.Database
 	writable bool
 	readTr   fdb.ReadTransaction
@@ -16,8 +25,8 @@ type Transaction struct {
 }
 
 func (t *Transaction) isReadOnly() bool {
-	for _, promise := range t.Promises {
-		if !promise.readOnly {
+	for _, task := range t.tasks {
+		if !task.promise.readOnly {
 			return false
 		}
 	}
@@ -25,19 +34,19 @@ func (t *Transaction) isReadOnly() bool {
 }
 
 func (t *Transaction) clear() {
-	for _, promise := range t.Promises {
-		promise.clear()
+	for _, task := range t.tasks {
+		task.promise.clear()
 	}
 }
 
 func (t *Transaction) initRead(tr fdb.ReadTransaction) {
-	t.Promises = []*Promise{}
+	t.tasks = []transactionTask{}
 	t.readTr = tr
 	t.started = true
 }
 
 func (t *Transaction) initWrite(tr fdb.Transaction) {
-	t.Promises = []*Promise{}
+	t.tasks = []transactionTask{}
 	t.readTr = tr
 	t.tr = tr
 	t.writable = true
@@ -80,16 +89,16 @@ func (t *Transaction) transact() {
 
 // will set all promises as confirmed
 func (t *Transaction) confirm() {
-	for _, promise := range t.Promises {
-		promise.confirmed = true
+	for _, task := range t.tasks {
+		task.promise.confirmed = true
 	}
 }
 
 func (t *Transaction) execute() (ret interface{}, err error) {
-	chains := make([]Chain, len(t.Promises))
-	for i, promise := range t.Promises {
-		t.setTr(promise)
-		chains[i] = promise.chain
+	chains := make([]Chain, len(t.tasks))
+	for i, task := range t.tasks {
+		t.setTr(task.promise)
+		chains[i] = task.promise.chain
 	}
 	t.finish = true
 	next := true
@@ -97,21 +106,26 @@ func (t *Transaction) execute() (ret interface{}, err error) {
 		next = false
 		// go through all chain events
 		for i, chain := range chains {
+			task := t.tasks[i]
+			promise := task.promise
 			if chain != nil {
 				chains[i] = chain()
 				// once error happened at any promise - transaction is failed
-				if t.Promises[i].err != nil {
-					err = t.Promises[i].err
-					return
+				if promise.err != nil {
+					promise.after = nil // no after in that case
+					if task.check {
+						err = promise.err
+						fmt.Println("PROMISE ERERRR", err)
+						return
+					}
 				}
 				next = true
 			} else { // if promise is done we chan check for postponed relative promises
-				promise := t.Promises[i]
 				if promise.after != nil {
 					after := promise.after().self()
 					promise.after = nil
 					t.setTr(after)
-					t.Promises = append(t.Promises, after)
+					t.tasks = append(t.tasks, transactionTask{promise: after})
 					chains = append(chains, after.chain)
 					next = true
 				}

@@ -159,7 +159,20 @@ func (p *Promise) After(do func() PromiseAny) *Promise {
 // without returning the result. But if Promise will return error full transaction
 // will be cancelled and error will be returned
 func (p *Promise) Check(t *Transaction) {
-	t.Promises = append(t.Promises, p)
+	t.tasks = append(t.tasks, transactionTask{
+		promise: p,
+		check:   true,
+	})
+}
+
+// Try will perform promise in parallel with other promises within transaction
+// without returning the result. But if Promise will return error, reansaction will
+// be performed as everythig is ok, error will be ignored
+func (p *Promise) Try(t *Transaction) {
+	t.tasks = append(t.tasks, transactionTask{
+		promise: p,
+		check:   false,
+	})
 }
 
 // Do will attach promise to transaction, so promise will be called within passed transaction

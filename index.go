@@ -3,7 +3,6 @@ package stored
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -17,14 +16,15 @@ import (
 type Index struct {
 	Name     string
 	Unique   bool
-	Geo      int // geo precision used to
+	Geo      int  // geo precision used to
+	search   bool // means for each word
 	dir      directory.DirectorySubspace
 	object   *Object
 	optional bool
 	fields   []*Field
 	//field  *Field
 	//secondary *Field
-	handle func(interface{}) Key
+	handle func(interface{}) KeyTuple
 }
 
 func (i *Index) isEmpty(input *Struct) bool {
@@ -39,18 +39,18 @@ func (i *Index) isEmpty(input *Struct) bool {
 // getKey will return index tuple
 func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 	if i.handle != nil {
-		keyBytes := i.handle(input.value.Interface())
+		keyTuple := i.handle(input.value.Interface())
 		// Would not index object if key is empty
-		if keyBytes == nil || len(keyBytes) == 0 {
+		if keyTuple == nil || len(keyTuple) == 0 {
 			return nil
 		}
-		key = tuple.Tuple{keyBytes}
+		tmpTuple := tuple.Tuple{}
+		for _, element := range keyTuple {
+			tmpTuple = append(tmpTuple, element)
+		}
+		key = tuple.Tuple{tmpTuple} // embedded tuple will be batter in that case
 	} else {
 		key = tuple.Tuple{}
-		/*indexValue := input.Get(i.field)
-		if i.field.isEmpty(indexValue) {
-			return nil
-		}*/
 		if i.Geo != 0 {
 			latInterface := input.Get(i.fields[0])
 			lngInterface := input.Get(i.fields[1])
@@ -74,8 +74,30 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 	return
 }
 
+// writeSearch is usefull for
+func (i *Index) writeSearch(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldObject *Struct) error {
+	/*newWords := searchGetInputWords(i, input)
+	toAddWords := map[string]bool{}
+	for _, word := range newWords {
+		toAddWords[word] = true
+	}
+	toDelete := []string{}
+	if oldObject != nil {
+		oldWords := searchGetInputWords(i, input)
+		for _, word := range oldWords {
+			has := false
+
+		}
+	}*/
+	return nil
+
+}
+
 // Write writes index related keys
 func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldObject *Struct) error {
+	if i.search {
+		return i.writeSearch(tr, primaryTuple, input, oldObject)
+	}
 	key := i.getKey(input)
 	if oldObject != nil {
 		toDelete := i.getKey(oldObject)
@@ -110,7 +132,6 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 		}
 	} else {
 		fullKey := append(key, primaryTuple...)
-		fmt.Println(i.Name, "INDEXKEY", fullKey)
 		tr.Set(i.dir.Pack(fullKey), []byte{})
 	}
 	return nil
@@ -171,6 +192,7 @@ func (i *Index) getList(tr fdb.ReadTransaction, q *Query) ([]*needObject, error)
 		if err != nil {
 			return nil, err
 		}
+
 		fullTuple, err := sub.Unpack(kv.Key)
 		if err != nil {
 			return nil, err

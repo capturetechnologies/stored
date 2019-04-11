@@ -317,9 +317,20 @@ func (ob *ObjectBuilder) IndexGeo(latKey string, longKey string, geoPrecision in
 
 // IndexCustom add an custom index generated dynamicly using callback function
 // custom indexes in an general way to implement any index on top of it
-func (ob *ObjectBuilder) IndexCustom(key string, cb func(object interface{}) Key) *Index {
+func (ob *ObjectBuilder) IndexCustom(key string, cb func(object interface{}) KeyTuple) *Index {
 	index := ob.addIndex(key)
 	index.handle = cb
+	return index
+}
+
+// IndexSearch will add serchable index which will allow
+func (ob *ObjectBuilder) IndexSearch(key string) *Index {
+	index := ob.addIndex(key)
+	field := ob.object.fields[key]
+	if field.Kind != reflect.String {
+		ob.panic("field " + key + " should be string for IndexSearch")
+	}
+	index.search = true
 	return index
 }
 
