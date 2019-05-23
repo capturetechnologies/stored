@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"facecat/stored/packed"
+	"github.com/capturetechnologies/stored/packed"
 )
 
 type user struct {
