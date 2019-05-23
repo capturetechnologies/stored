@@ -21,11 +21,24 @@ var ErrDataCorrupt = errors.New("Data corrupt")
 // ErrAlreadyExist Object with this primary index or one of unique indexes already
 var ErrAlreadyExist = errors.New("This object already exist")
 
+// ErrSkip returned in cases when it is necessary to skip operation without cancelling
+// underlying transactions
+var ErrSkip = errors.New("Operation was skipped")
+
 // Key is main type for byte array keys
 type Key = []byte
 
 // KeyTuple is the list of keys
 type KeyTuple []KeyElement
+
+// Pack will return packed KeyTuple as bytearray
+func (kt KeyTuple) Pack() []byte {
+	tmpTuple := tuple.Tuple{}
+	for _, element := range kt {
+		tmpTuple = append(tmpTuple, element)
+	}
+	return tmpTuple.Pack()
+}
 
 // A KeyElement is one of the types that may be encoded in FoundationDB
 // tuples. Although the Go compiler cannot enforce this, it is a programming

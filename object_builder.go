@@ -324,14 +324,14 @@ func (ob *ObjectBuilder) IndexCustom(key string, cb func(object interface{}) Key
 }
 
 // IndexSearch will add serchable index which will allow
-func (ob *ObjectBuilder) IndexSearch(key string) *Index {
-	index := ob.addIndex(key)
+func (ob *ObjectBuilder) IndexSearch(key string, options ...IndexOption) *IndexSearch {
+	index := ob.addFieldIndex([]string{key})
 	field := ob.object.fields[key]
 	if field.Kind != reflect.String {
 		ob.panic("field " + key + " should be string for IndexSearch")
 	}
 	index.search = true
-	return index
+	return &IndexSearch{index: index}
 }
 
 // Counter will count all objects with same value of passed fields

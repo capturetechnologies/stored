@@ -196,7 +196,6 @@ func (q *Query) execute() *PromiseSlice {
 				end = sub.Pack(q.to)
 			}
 		}
-
 		r := fdb.KeyRange{Begin: start, End: end}
 
 		limit := q.object.getKeyLimit(q.limit)
@@ -209,18 +208,24 @@ func (q *Query) execute() *PromiseSlice {
 			Limit:   limit,
 			Reverse: q.reverse,
 		})
-		iterator := rangeResult.Iterator()
-		elem := valueRaw{}
-		//res := []valueRaw{}
 
+		elem := valueRaw{}
 		slice := Slice{}
 		var lastTuple tuple.Tuple
 		rowsNum := 0
-		for iterator.Advance() {
-			kv, err := iterator.Get()
-			if err != nil {
-				return p.fail(err)
-			}
+
+		kvList, err := rangeResult.GetSliceWithError()
+		if err != nil {
+			return p.fail(err)
+		}
+		for _, kv := range kvList {
+
+			//iterator := rangeResult.Iterator()
+			//for iterator.Advance() {
+			//	kv, err := iterator.Get()
+			//	if err != nil {
+			//		return p.fail(err)
+			//	}
 			fullTuple, err := q.object.primary.Unpack(kv.Key)
 			if err != nil {
 				return p.fail(err)

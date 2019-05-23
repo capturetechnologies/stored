@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/capturetechnologies/stored/packed"
+	"facecat/stored/packed"
 )
 
 type user struct {
@@ -406,7 +406,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	}
 
 	chats := []chatN2N{}
-	err = n2nUserChat.GetClients(user1, nil, 20).ScanAll(&chats)
+	err = n2nUserChat.GetClients(user1, nil).Limit(20).ScanAll(&chats)
 	if err != nil {
 		return err
 	}
@@ -440,7 +440,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 	}
 
 	users := []userN2N{}
-	err = n2nUserChat.GetHosts(chat1, nil, 2).ScanAll(&users)
+	err = n2nUserChat.GetHosts(chat1, nil).Limit(2).ScanAll(&users)
 	if err != nil {
 		return err
 	}
@@ -455,7 +455,7 @@ func testsN2N(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error {
 		return errors.New("user 2 is invalid")
 	}
 	users2 := []userN2N{}
-	err = n2nUserChat.GetHosts(chat1, 3, 10).ScanAll(&users2)
+	err = n2nUserChat.GetHosts(chat1, 3).Limit(10).ScanAll(&users2)
 	if err != nil {
 		return err
 	}
@@ -567,7 +567,7 @@ func testsN2NData(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error
 	}
 
 	chats := []chatN2N{} // list of chats is here
-	err = n2nUserChat.GetClients(user1, nil, 20).ScanAll(&chats)
+	err = n2nUserChat.GetClients(user1, nil).Limit(20).ScanAll(&chats)
 	if err != nil {
 		return err
 	}
@@ -579,7 +579,7 @@ func testsN2NData(n2nUser *Object, n2nChat *Object, n2nUserChat *Relation) error
 	}
 
 	users := []userN2N{} // list of chats is here
-	err = n2nUserChat.GetHosts(chat1, nil, 20).ScanAll(&users)
+	err = n2nUserChat.GetHosts(chat1, nil).Limit(20).ScanAll(&users)
 	if err != nil {
 		return err
 	}
@@ -744,7 +744,7 @@ func testsMultiPrimary(dbMessage *Object, n2nMessageUser *Relation, n2nUser *Obj
 		return err
 	}
 	users := []userN2N{}
-	err = n2nMessageUser.GetClients(msg, nil, 100).ScanAll(&users)
+	err = n2nMessageUser.GetClients(msg, nil).Limit(100).ScanAll(&users)
 	if err != nil {
 		return err
 	}
@@ -796,7 +796,7 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 		return err
 	}
 	users := []*user{}
-	err = userUser.GetClients(user1, nil, 1000).ScanAll(&users)
+	err = userUser.GetClients(user1, nil).Limit(1000).ScanAll(&users)
 	if err != nil {
 		return err
 	}
@@ -807,7 +807,7 @@ func testsN2NSelf(testUser *Object, userUser *Relation) error {
 		return errors.New("Incorrect user found 1")
 	}
 	users = []*user{}
-	err = userUser.GetClients(user2, nil, 1000).ScanAll(&users)
+	err = userUser.GetClients(user2, nil).Limit(1000).ScanAll(&users)
 	if err != nil {
 		return err
 	}
@@ -993,7 +993,7 @@ func testsGeoIndex(dir *Directory) error {
 		return err
 	}
 	rows := []geo{}
-	err = indexGeo.GetGeo(30.1, 50.10101, 10).ScanAll(&rows)
+	err = indexGeo.GetGeo(30.1, 50.10101).Limit(10).ScanAll(&rows)
 	if err != nil {
 		return err
 	}
@@ -1005,7 +1005,7 @@ func testsGeoIndex(dir *Directory) error {
 	row.Long = 25.1
 	err = dbGeo.Set(&row).Err()
 	rows = []geo{}
-	err = indexGeo.GetGeo(30.1, 50.10101, 10).ScanAll(&rows)
+	err = indexGeo.GetGeo(30.1, 50.10101).Limit(10).ScanAll(&rows)
 	if err != nil {
 		return err
 	}

@@ -188,9 +188,10 @@ func (o *Object) promise() *Promise {
 
 func (o *Object) promiseSlice() *PromiseSlice {
 	return &PromiseSlice{
-		Promise{
+		Promise: Promise{
 			db: o.db,
 		},
+		limit: 100,
 	}
 }
 
@@ -267,13 +268,13 @@ func (o *Object) Update(data interface{}, callback func() error) *PromiseErr {
 		//res := needObject(p.tr, sub)
 		return func() Chain {
 			value, err := needed.fetch()
-			input.Fill(o, value)
 			if err == ErrNotFound {
 				return p.fail(ErrNotFound)
 			}
 			if err != nil {
 				return p.fail(err)
 			}
+			input.Fill(o, value)
 			err = value.Err()
 			if err != nil {
 				return p.fail(err)
@@ -783,8 +784,7 @@ func (o *Object) Clear() error {
 func (o *Object) ClearAllIndexes() error {
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		for _, index := range o.indexes {
-			start, end := index.dir.FDBRangeKeys()
-			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+			index.doClearAll(tr)
 		}
 		return
 	})

@@ -11,7 +11,7 @@ type IndexGeo struct {
 }
 
 // GetGeo will return elements by geo index
-func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
+func (ig *IndexGeo) GetGeo(lat float64, long float64) *PromiseSlice {
 	i := ig.index
 	// Precisions
 	// #   km
@@ -32,7 +32,6 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 	}
 	neighbors := geohash.Neighbors(hash)
 	search := append(neighbors, hash)
-	//fmt.Println("search scope hashes:", search)
 	p := i.object.promiseSlice()
 	p.doRead(func() Chain {
 		rangeResults := map[string]fdb.RangeResult{}
@@ -41,8 +40,8 @@ func (ig *IndexGeo) GetGeo(lat float64, long float64, limit int) *PromiseSlice {
 			start, end := sub.FDBRangeKeys()
 			r := fdb.KeyRange{Begin: start, End: end}
 			rangeResults[geohash] = p.readTr.GetRange(r, fdb.RangeOptions{
-				Limit:   limit,
-				Reverse: true,
+				Limit:   p.limit,
+				Reverse: !p.reverse, // select opposite reverse
 			})
 		}
 		need := []*needObject{}

@@ -111,7 +111,7 @@ func (t *Transaction) execute() (ret interface{}, err error) {
 			if chain != nil {
 				chains[i] = chain()
 				// once error happened at any promise - transaction is failed
-				if promise.err != nil {
+				if promise.err != nil && promise.err != ErrSkip {
 					promise.after = nil // no after in that case
 					if task.check {
 						err = promise.err

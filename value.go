@@ -157,7 +157,7 @@ func (v *Value) Reflect() (reflect.Value, error) {
 	for key, binaryValue := range v.raw {
 		field, ok := v.object.fields[key]
 		if !ok {
-			fmt.Println("field not found", key, "of object", v.object.name)
+			//fmt.Println("field not found", key, "of object", v.object.name)
 			continue
 		}
 		objField := value.Field(field.Num)
