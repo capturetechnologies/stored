@@ -166,7 +166,7 @@ func (p *Promise) Check(t *Transaction) {
 }
 
 // Try will perform promise in parallel with other promises within transaction
-// without returning the result. But if Promise will return error, reansaction will
+// without returning the result. But if Promise will return error, transaction will
 // be performed as everythig is ok, error will be ignored
 func (p *Promise) Try(t *Transaction) {
 	t.tasks = append(t.tasks, transactionTask{

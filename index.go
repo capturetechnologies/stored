@@ -3,6 +3,7 @@ package stored
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -14,17 +15,22 @@ import (
 
 // Index represend all indexes sored has
 type Index struct {
-	Name     string
-	Unique   bool
-	Geo      int  // geo precision used to
-	search   bool // means for each word
-	dir      directory.DirectorySubspace
-	object   *Object
-	optional bool
-	fields   []*Field
-	//field  *Field
-	//secondary *Field
-	handle func(interface{}) KeyTuple
+	Name         string
+	Unique       bool
+	Geo          int  // geo precision used to
+	search       bool // means for each word
+	dir          directory.DirectorySubspace
+	object       *Object
+	optional     bool
+	fields       []*Field
+	handle       func(interface{}) KeyTuple
+	checkHandler func(obj interface{}) bool
+}
+
+// IndexOption is in option struct which allow to set differnt options
+type IndexOption struct {
+	// CheckHandler describes should index be written for specific object or not
+	CheckHandler func(obj interface{}) bool
 }
 
 func (i *Index) isEmpty(input *Struct) bool {
@@ -74,23 +80,47 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 	return
 }
 
-// writeSearch is usefull for
+// writeSearch will set new index keys and delete old ones for text search index
 func (i *Index) writeSearch(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldObject *Struct) error {
-	/*newWords := searchGetInputWords(i, input)
+	newWords := searchGetInputWords(i, input)
 	toAddWords := map[string]bool{}
-	for _, word := range newWords {
-		toAddWords[word] = true
+	skip := false
+	if i.checkHandler != nil {
+		if !i.checkHandler(input.value.Interface()) {
+			//fmt.Println("skipping index")
+			skip = true
+		}
+		// old value is better to delete any way
 	}
-	toDelete := []string{}
+	if !skip {
+		for _, word := range newWords {
+			toAddWords[word] = true
+		}
+	}
+	toDeleteWords := map[string]bool{}
 	if oldObject != nil {
-		oldWords := searchGetInputWords(i, input)
+		oldWords := searchGetInputWords(i, oldObject)
 		for _, word := range oldWords {
-			has := false
+			_, ok := toAddWords[word]
+			if ok {
+				delete(toAddWords, word)
+			} else {
+				toDeleteWords[word] = true
+			}
 
 		}
-	}*/
+	}
+	for word := range toAddWords {
+		key := tuple.Tuple{word}
+		fullKey := append(key, primaryTuple...)
+		tr.Set(i.dir.Pack(fullKey), []byte{})
+	}
+	for word := range toDeleteWords {
+		key := tuple.Tuple{word}
+		fullKey := append(key, primaryTuple...)
+		tr.Clear(i.dir.Pack(fullKey))
+	}
 	return nil
-
 }
 
 // Write writes index related keys
@@ -279,4 +309,77 @@ func (i *Index) ReindexUnsafe(data interface{}) *PromiseErr {
 		return p.done(nil)
 	})
 	return p
+}
+
+func (i *Index) doClearAll(tr fdb.Transaction) {
+	start, end := i.dir.FDBRangeKeys()
+	tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+}
+
+// ClearAll will remove all data for specific index
+func (i *Index) ClearAll() error {
+	_, err := i.object.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+		i.doClearAll(tr)
+		return
+	})
+	return err
+}
+
+// Reindex will reindex index data
+func (i *Index) Reindex() {
+	i.ClearAll()
+	object := i.object
+	query := object.ListAll().Limit(100)
+	errorCount := 0
+	for query.Next() {
+		query.Slice().Each(func(item interface{}) {
+			input := structAny(item)
+			primaryTuple := input.getPrimary(object)
+			_, err := object.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
+
+				/*sub := object.sub(primaryTuple)
+				needed := object.need(tr, sub)
+				value, err := needed.fetch()
+				var oldObject *Struct
+				if err != ErrNotFound {
+					if err != nil {
+						return
+					}
+					err = value.Err()
+					if err != nil {
+						return
+					}
+					oldObject = structAny(value.Interface())
+				}*/
+
+				//err = i.Write(tr, primaryTuple, input, oldObject)
+				err := i.Write(tr, primaryTuple, input, nil) // write everything
+
+				return nil, err
+			})
+			if err != nil {
+				fmt.Println("reindex fail of object «"+object.name+"»:", err)
+				errorCount++
+			}
+		})
+	}
+	if errorCount > 0 {
+		fmt.Printf("Reindex finished with %d errors\n", errorCount)
+	} else {
+		fmt.Println("Reindex successfully finished")
+	}
+}
+
+// SetOption allow to set option
+func (i *Index) SetOption(option IndexOption) {
+	if option.CheckHandler != nil {
+		i.checkHandler = option.CheckHandler
+	}
+}
+
+// Options allow to set list of options
+func (i *Index) Options(options ...IndexOption) {
+	for _, option := range options {
+		i.SetOption(option)
+	}
 }

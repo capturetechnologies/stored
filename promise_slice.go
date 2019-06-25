@@ -3,6 +3,8 @@ package stored
 // PromiseSlice is implements everything promise implements but more
 type PromiseSlice struct {
 	Promise
+	limit   int
+	reverse bool
 }
 
 // ScanAll values inside promise
@@ -37,5 +39,17 @@ func (p *PromiseSlice) Do(t *Transaction) *PromiseSlice {
 	}
 	p.tr = t.tr
 	p.readTr = t.readTr
+	return p
+}
+
+// Limit is meant to set limit of the query this
+func (p *PromiseSlice) Limit(limit int) *PromiseSlice {
+	p.limit = limit
+	return p
+}
+
+// Reverse allow to reverse value of slice query if querying function support this
+func (p *PromiseSlice) Reverse(reverse bool) *PromiseSlice {
+	p.reverse = reverse
 	return p
 }

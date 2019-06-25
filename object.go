@@ -188,9 +188,10 @@ func (o *Object) promise() *Promise {
 
 func (o *Object) promiseSlice() *PromiseSlice {
 	return &PromiseSlice{
-		Promise{
+		Promise: Promise{
 			db: o.db,
 		},
+		limit: 100,
 	}
 }
 
@@ -267,13 +268,13 @@ func (o *Object) Update(data interface{}, callback func() error) *PromiseErr {
 		//res := needObject(p.tr, sub)
 		return func() Chain {
 			value, err := needed.fetch()
-			input.Fill(o, value)
 			if err == ErrNotFound {
 				return p.fail(ErrNotFound)
 			}
 			if err != nil {
 				return p.fail(err)
 			}
+			input.Fill(o, value)
 			err = value.Err()
 			if err != nil {
 				return p.fail(err)
@@ -419,6 +420,37 @@ func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback fun
 	return p
 }
 
+// GetField  will fill fetch the mutable field data, and fill the passed object
+func (o *Object) GetField(objectPtr interface{}, fieldName string) *PromiseErr {
+	input := structEditable(objectPtr)
+	field := o.field(fieldName)
+	if !field.mutable {
+		o.panic("field should be mutable to use GetField method")
+	}
+	p := o.promiseErr()
+	p.do(func() Chain {
+		primaryTuple := input.getPrimary(o)
+		sub := o.sub(primaryTuple)
+
+		key := sub.Pack(tuple.Tuple{field.Name})
+
+		keyPromise := p.tr.Get(key)
+
+		return func() Chain {
+			keyData, err := keyPromise.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if len(keyData) == 0 {
+				return p.ok()
+			}
+			input.setField(field, keyData)
+			return p.ok()
+		}
+	})
+	return p
+}
+
 // SetField sets any value to requested field
 func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
 	input := structAny(objectPtr)
@@ -493,7 +525,6 @@ func (o *Object) Add(data interface{}) *PromiseErr {
 				return p.fail(err)
 			}
 			if sub.Contains(firstKey) {
-				fmt.Println("ALREADY EXIST PRIMARY KEY", firstKey)
 				return p.fail(ErrAlreadyExist)
 			}
 
@@ -783,8 +814,7 @@ func (o *Object) Clear() error {
 func (o *Object) ClearAllIndexes() error {
 	_, err := o.db.Transact(func(tr fdb.Transaction) (ret interface{}, e error) {
 		for _, index := range o.indexes {
-			start, end := index.dir.FDBRangeKeys()
-			tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
+			index.doClearAll(tr)
 		}
 		return
 	})

@@ -1,6 +1,11 @@
 package stored
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var searchWordSplit = regexp.MustCompile("[,. ]+")
 
 // searchGetInputWords will fetch list of words found in input fields
 func searchGetInputWords(index *Index, input *Struct) (words []string) {
@@ -12,6 +17,9 @@ func searchGetInputWords(index *Index, input *Struct) (words []string) {
 }
 
 func searchSplit(str string) (words []string) {
-	words = strings.Split(str, " ")
+	words = searchWordSplit.Split(str, -1)
+	for k, word := range words {
+		words[k] = strings.ToLower(word)
+	}
 	return
 }

@@ -272,7 +272,14 @@ func (ob *ObjectBuilder) AutoIncrement(name string) *ObjectBuilder {
 func (ob *ObjectBuilder) Unique(names ...string) *ObjectBuilder {
 	index := ob.addFieldIndex(names)
 	index.Unique = true
+	return ob
+}
 
+// UniqueOptional index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
+func (ob *ObjectBuilder) UniqueOptional(names ...string) *ObjectBuilder {
+	index := ob.addFieldIndex(names)
+	index.Unique = true
+	index.optional = true
 	return ob
 }
 
@@ -324,14 +331,17 @@ func (ob *ObjectBuilder) IndexCustom(key string, cb func(object interface{}) Key
 }
 
 // IndexSearch will add serchable index which will allow
-func (ob *ObjectBuilder) IndexSearch(key string) *Index {
-	index := ob.addIndex(key)
+func (ob *ObjectBuilder) IndexSearch(key string, options ...IndexOption) *IndexSearch {
+	index := ob.addFieldIndex([]string{key})
 	field := ob.object.fields[key]
 	if field.Kind != reflect.String {
 		ob.panic("field " + key + " should be string for IndexSearch")
 	}
+	for _, opt := range options {
+		index.SetOption(opt)
+	}
 	index.search = true
-	return index
+	return &IndexSearch{index: index}
 }
 
 // Counter will count all objects with same value of passed fields

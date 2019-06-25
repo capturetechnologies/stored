@@ -297,7 +297,7 @@ func (r *Relation) GetClientsCount(hostOrID interface{}) *Promise {
 	return p
 }
 
-func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limit int, hosts bool) *PromiseSlice {
+func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, hosts bool) *PromiseSlice {
 	var obj *Object
 	var opposite *Object
 	var oppositeDir directory.DirectorySubspace
@@ -321,7 +321,8 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 			start = key.Pack(obj.getPrimaryTuple(from)) // add the last key fetched
 		}
 		iterator := p.readTr.GetRange(fdb.KeyRange{Begin: start, End: end}, fdb.RangeOptions{
-			Limit: limit,
+			Limit:   p.limit,
+			Reverse: p.reverse,
 		}).Iterator()
 		indexData := [][]byte{}
 		needed := []*needObject{}
@@ -359,8 +360,8 @@ func (r *Relation) getHostsOrClients(objOrID interface{}, from interface{}, limi
 }
 
 // GetClients fetch slice of client objects using host
-func (r *Relation) GetClients(objOrID interface{}, from interface{}, limit int) *PromiseSlice {
-	return r.getHostsOrClients(objOrID, from, limit, false)
+func (r *Relation) GetClients(objOrID interface{}, from interface{}) *PromiseSlice {
+	return r.getHostsOrClients(objOrID, from, false)
 }
 
 func (r *Relation) getSliceIDs(objFrom *Object, objRet *Object, dataField *Field, sub subspace.Subspace, from interface{}, limit int) *SliceIDs {
@@ -414,8 +415,8 @@ func (r *Relation) GetHostIDs(objOrID interface{}, from interface{}, limit int) 
 }
 
 // GetHosts fetch slice of client objects using host
-func (r *Relation) GetHosts(objOrID interface{}, from interface{}, limit int) *PromiseSlice {
-	return r.getHostsOrClients(objOrID, from, limit, true)
+func (r *Relation) GetHosts(objOrID interface{}, from interface{}) *PromiseSlice {
+	return r.getHostsOrClients(objOrID, from, true)
 }
 
 // SetHostData writed new data from host object (host data could be )

@@ -21,6 +21,10 @@ var ErrDataCorrupt = errors.New("Data corrupt")
 // ErrAlreadyExist Object with this primary index or one of unique indexes already
 var ErrAlreadyExist = errors.New("This object already exist")
 
+// ErrSkip returned in cases when it is necessary to skip operation without cancelling
+// underlying transactions
+var ErrSkip = errors.New("Operation was skipped")
+
 // Key is main type for byte array keys
 type Key = []byte
 
