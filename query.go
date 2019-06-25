@@ -196,7 +196,6 @@ func (q *Query) execute() *PromiseSlice {
 				end = sub.Pack(q.to)
 			}
 		}
-
 		r := fdb.KeyRange{Begin: start, End: end}
 
 		limit := q.object.getKeyLimit(q.limit)

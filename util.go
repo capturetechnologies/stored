@@ -31,6 +31,15 @@ type Key = []byte
 // KeyTuple is the list of keys
 type KeyTuple []KeyElement
 
+// Pack will return packed KeyTuple as bytearray
+func (kt KeyTuple) Pack() []byte {
+	tmpTuple := tuple.Tuple{}
+	for _, element := range kt {
+		tmpTuple = append(tmpTuple, element)
+	}
+	return tmpTuple.Pack()
+}
+
 // A KeyElement is one of the types that may be encoded in FoundationDB
 // tuples. Although the Go compiler cannot enforce this, it is a programming
 // error to use an unsupported types as a KeyElement (and will typically

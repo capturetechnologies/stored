@@ -54,7 +54,10 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 		for _, element := range keyTuple {
 			tmpTuple = append(tmpTuple, element)
 		}
-		key = tuple.Tuple{tmpTuple} // embedded tuple will be batter in that case
+
+		// embedded tuple cause problems with partitial fetching
+		key = tmpTuple
+		//key = tuple.Tuple{tmpTuple} // embedded tuple will be better in that case
 	} else {
 		key = tuple.Tuple{}
 		if i.Geo != 0 {
@@ -96,6 +99,7 @@ func (i *Index) writeSearch(tr fdb.Transaction, primaryTuple tuple.Tuple, input,
 		for _, word := range newWords {
 			toAddWords[word] = true
 		}
+		fmt.Println("index words >>", newWords)
 	}
 	toDeleteWords := map[string]bool{}
 	if oldObject != nil {
@@ -113,6 +117,7 @@ func (i *Index) writeSearch(tr fdb.Transaction, primaryTuple tuple.Tuple, input,
 	for word := range toAddWords {
 		key := tuple.Tuple{word}
 		fullKey := append(key, primaryTuple...)
+		fmt.Println("write search key", fullKey, "packed", i.dir.Pack(fullKey))
 		tr.Set(i.dir.Pack(fullKey), []byte{})
 	}
 	for word := range toDeleteWords {
@@ -187,6 +192,7 @@ func (i *Index) getIterator(tr fdb.ReadTransaction, q *Query) (subspace.Subspace
 	if i.Unique {
 		i.object.panic("index is unique (lists not supported)")
 	}
+	//if len(q.primary) != 0 {
 	sub := i.dir.Sub(q.primary...)
 	start, end := sub.FDBRangeKeys()
 	if q.from != nil {
