@@ -17,30 +17,30 @@ import (
 
 // note: any large field (> than 100kb should be marked as mutable for the performance)
 
-type schemaFull struct { // stored separately, an key for each version
-	versions map[uint8]schemaVersion
-	latest   uint8
-	current  schemaVersion
+type schemeFull struct { // stored separately, an key for each version
+	versions map[uint64]schemeVersion `json:"versions"`
+	latest   uint64                   `json:"latest"`
+	current  schemeVersion            `json:"-"`
 }
 
-type schemaVersion struct {
-	PrimaryFields []schemaField `json:"primary"`   // Fields stored inside primary part of key
-	PackedFields  []schemaField `json:"packed"`    // Fields stored at one-key packed body
-	MutableFields []schemaField `json:"mutable"`   // Fields stored as separate keys (mutable keys)
-	Created       int64         `json:"timestamp"` // Time the schema was created
+type schemeVersion struct {
+	PrimaryFields []schemeField `json:"primary"`   // Fields stored inside primary part of key
+	PackedFields  []schemeField `json:"packed"`    // Fields stored at one-key packed body
+	MutableFields []schemeField `json:"mutable"`   // Fields stored as separate keys (mutable keys)
+	Created       int64         `json:"timestamp"` // Time the scheme was created
 }
 
-// schemaField is needed to match data in diferent position of the value with fields of object
+// schemeField is needed to match data in diferent position of the value with fields of object
 // since annotated name of field or real name could be changes STORED will match field if one
 // of those preserved
-type schemaField struct {
+type schemeField struct {
 	Name       string `json:"name"`
 	ObjectName string `json:"obj_name"`
 	Type       string `json:"type"`
 }
 
-func (sf *schemaFull) load(ob *ObjectBuilder, dir directory.DirectorySubspace, tr fdb.ReadTransaction) error {
-	sub := dir.Sub("schema")
+func (sf *schemeFull) load(ob *ObjectBuilder, dir directory.DirectorySubspace, tr fdb.ReadTransaction) error {
+	sub := dir.Sub("scheme")
 
 	start, end := sub.FDBRangeKeys()
 	r := fdb.KeyRange{Begin: start, End: end}
@@ -52,34 +52,34 @@ func (sf *schemaFull) load(ob *ObjectBuilder, dir directory.DirectorySubspace, t
 	if err != nil {
 		return err
 	}
-	sf.versions = map[uint8]schemaVersion{}
+	sf.versions = map[uint64]schemeVersion{}
 	for _, kv := range rows {
-		sch := schemaVersion{}
-		err := json.Unmarshal(kv.Value, sch)
+		sch := schemeVersion{}
+		err := json.Unmarshal(kv.Value, &sch)
 		if err != nil {
-			fmt.Println("schema corrupted", err)
-			ob.panic("schema corrupted")
+			fmt.Println("scheme corrupted", err)
+			ob.panic("scheme corrupted")
 		}
 		var tuple tuple.Tuple
 		tuple, err = sub.Unpack(kv.Key)
 		if err != nil {
-			fmt.Println("schema corrupted", err)
-			ob.panic("schema corrupted")
+			fmt.Println("scheme corrupted", err)
+			ob.panic("scheme corrupted")
 		}
-		version := tuple[0].(uint8)
+		version := tuple[0].(uint64)
 		sf.versions[version] = sch
 	}
 	sf.setLatest()
 	return nil
 }
 
-func (sf *schemaFull) setLatest() *schemaVersion {
+func (sf *schemeFull) setLatest() *schemeVersion {
 	latestTime := int64(0)
-	latestVer := uint8(0)
-	for ver, schema := range sf.versions {
-		if schema.Created > latestTime {
+	latestVer := uint64(0)
+	for ver, scheme := range sf.versions {
+		if scheme.Created > latestTime {
 			latestVer = ver
-			latestTime = schema.Created
+			latestTime = scheme.Created
 		}
 	}
 	if latestVer != 0 {
@@ -89,11 +89,11 @@ func (sf *schemaFull) setLatest() *schemaVersion {
 	return nil
 }
 
-func (sf *schemaFull) buildCurrent(ob *ObjectBuilder) {
-	sf.current = schemaVersion{
-		PrimaryFields: []schemaField{},
-		PackedFields:  []schemaField{},
-		MutableFields: []schemaField{},
+func (sf *schemeFull) buildCurrent(ob *ObjectBuilder) {
+	sf.current = schemeVersion{
+		PrimaryFields: []schemeField{},
+		PackedFields:  []schemeField{},
+		MutableFields: []schemeField{},
 	}
 	for _, field := range ob.object.primaryFields {
 		sf.current.PrimaryFields = append(sf.current.PrimaryFields, sf.current.wrapField(field))
@@ -111,7 +111,7 @@ func (sf *schemaFull) buildCurrent(ob *ObjectBuilder) {
 }
 
 // compare returns true if new version should be stored
-func (sf *schemaFull) compare(new *schemaVersion, old *schemaVersion) bool {
+func (sf *schemeFull) compare(new *schemeVersion, old *schemeVersion) bool {
 	if new.Created < old.Created {
 		return false // just in case comparing outdated version
 	}
@@ -148,8 +148,8 @@ func (sf *schemaFull) compare(new *schemaVersion, old *schemaVersion) bool {
 	return false
 }
 
-func (sv *schemaVersion) wrapField(field *Field) schemaField {
-	return schemaField{
+func (sv *schemeVersion) wrapField(field *Field) schemeField {
+	return schemeField{
 		Name:       field.Name,
 		ObjectName: field.Type.Name,
 		Type:       field.Type.Type.Name(),

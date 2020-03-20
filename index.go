@@ -20,6 +20,7 @@ type Index struct {
 	Geo          int  // geo precision used to
 	search       bool // means for each word
 	dir          directory.DirectorySubspace
+	valueDir     directory.DirectorySubspace
 	object       *Object
 	optional     bool
 	fields       []*Field
@@ -57,7 +58,6 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 
 		// embedded tuple cause problems with partitial fetching
 		key = tmpTuple
-		//key = tuple.Tuple{tmpTuple} // embedded tuple will be better in that case
 	} else {
 		key = tuple.Tuple{}
 		if i.Geo != 0 {
@@ -81,6 +81,29 @@ func (i *Index) getKey(input *Struct) (key tuple.Tuple) {
 		}
 	}
 	return
+}
+
+func (i *Index) needValueStore() bool {
+	if i.handle != nil {
+		return true
+	}
+	return false
+}
+
+// getOldKey is just an wrapper around getKey, except case when index has handle, when it can be dynamically changed
+func (i *Index) getOldKey(tr fdb.Transaction, primaryTuple tuple.Tuple, oldObject *Struct) (tuple.Tuple, error) {
+	if i.needValueStore() { // the index is custom
+		bites, err := tr.Get(i.valueDir.Pack(primaryTuple)).Get()
+		if err != nil {
+			return nil, err
+		}
+		oldKey, err := tuple.Unpack(bites)
+		if err != nil {
+			return nil, err
+		}
+		return oldKey, nil
+	}
+	return i.getKey(oldObject), nil
 }
 
 // writeSearch will set new index keys and delete old ones for text search index
@@ -135,7 +158,10 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 	}
 	key := i.getKey(input)
 	if oldObject != nil {
-		toDelete := i.getKey(oldObject)
+		toDelete, err := i.getOldKey(tr, primaryTuple, oldObject)
+		if err != nil { // if error fetching old index - throw it right here
+			return err
+		}
 		if toDelete != nil {
 			if reflect.DeepEqual(toDelete, key) {
 				return nil
@@ -153,10 +179,12 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 
 	if i.Unique {
 		previousPromise := tr.Get(i.dir.Pack(key))
+		fmt.Println("previous key", i.dir.Pack(key))
 
 		tr.Set(i.dir.Pack(key), primaryTuple.Pack()) // will be cancelled in case of error
 
 		previousBytes, err := previousPromise.Get()
+		fmt.Println("previous index", previousBytes)
 		if err != nil {
 			return err
 		}
@@ -169,17 +197,22 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 		fullKey := append(key, primaryTuple...)
 		tr.Set(i.dir.Pack(fullKey), []byte{})
 	}
+	if i.needValueStore() {
+		tr.Set(i.valueDir.Pack(primaryTuple), key.Pack())
+	}
 	return nil
 }
 
 // Delete removes selected index
 func (i *Index) Delete(tr fdb.Transaction, primaryTuple tuple.Tuple, key tuple.Tuple) {
 	if key == nil {
+		fmt.Println("index key is NIL strange behavior")
 		// no need to clean, this field wasn't indexed
 		return
 	}
 	sub := i.dir.Sub(key...)
 	if i.Unique {
+		fmt.Println("+++ delete the index", sub)
 		tr.Clear(sub)
 	} else {
 		// Add primary here

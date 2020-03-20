@@ -2,7 +2,6 @@ package stored
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -18,49 +17,64 @@ type IndexSearch struct {
 func (is *IndexSearch) Search(name string) *PromiseSlice {
 	words := searchSplit(name)
 
-	word := words[0]
+	//word := words[0]
 	i := is.index
 	p := i.object.promiseSlice()
+	wordsLen := len(words)
 	p.doRead(func() Chain {
-		if len(words) < 1 {
-			return p.fail(errors.New("No words dound on the string"))
+		if wordsLen < 1 {
+			return p.fail(errors.New("No words found on the string"))
 		}
-		//sub := i.dir.Sub(word)
-		partword := i.dir.Pack(tuple.Tuple{word})
-		//key := fdb.Key{}
-		//partword = partword[:len(partword)-1]
-		start := partword[:len(partword)-1]
-		end := make(fdb.Key, len(start))
-		copy(end, start)
 
-		start = append(start, 0)
-		end = append(end, 255)
+		limit := 1000
+		if wordsLen == 1 {
+			limit = p.limit
+		}
+		rangeResults := map[string]fdb.RangeResult{}
+		for _, word := range words {
+			partword := i.dir.Pack(tuple.Tuple{word})
+			start := partword[:len(partword)-1]
+			end := make(fdb.Key, len(start))
+			copy(end, start)
 
-		fmt.Println("word", word, "start!", start, "end", end)
+			start = append(start, 0)
+			end = append(end, 255)
 
-		r := fdb.KeyRange{Begin: start, End: end}
-		rangeResult := p.readTr.GetRange(r, fdb.RangeOptions{
-			Limit:   p.limit,
-			Reverse: p.reverse,
-		})
+			r := fdb.KeyRange{Begin: start, End: end}
+			rangeResults[word] = p.readTr.GetRange(r, fdb.RangeOptions{
+				Limit:   limit,
+				Reverse: p.reverse,
+			})
+		}
 		need := []*needObject{}
 		slice := Slice{}
 		return func() Chain {
-			rows, err := rangeResult.GetSliceWithError()
-			if err != nil {
-				return p.fail(err)
-			}
-			for _, row := range rows {
-				fullTuple, err := i.dir.Unpack(row.Key)
+			found := map[string]int{}
+			for _, word := range words {
+				rows, err := rangeResults[word].GetSliceWithError()
 				if err != nil {
 					return p.fail(err)
 				}
-				if len(fullTuple) < 2 {
-					continue
+				for _, row := range rows {
+					fullTuple, err := i.dir.Unpack(row.Key)
+					if err != nil {
+						return p.fail(err)
+					}
+					if len(fullTuple) < 2 {
+						continue
+					}
+					primaryTuple := fullTuple[1:]
+					primaryTupleKey := string(primaryTuple.Pack())
+					_, ok := found[primaryTupleKey]
+					if ok {
+						found[primaryTupleKey]++
+					} else {
+						found[primaryTupleKey] = 1
+					}
+					if found[primaryTupleKey] == wordsLen {
+						need = append(need, i.object.need(p.readTr, i.object.sub(primaryTuple)))
+					}
 				}
-				primaryTuple := fullTuple[1:]
-
-				need = append(need, i.object.need(p.readTr, i.object.sub(primaryTuple)))
 			}
 			return func() Chain {
 				for _, n := range need {

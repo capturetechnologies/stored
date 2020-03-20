@@ -74,7 +74,12 @@ func (q *Query) List(values ...interface{}) *Query {
 	}
 	q.primary = tuple.Tuple{}
 	for _, v := range values {
-		q.primary = append(q.primary, v)
+		switch t := v.(type) {
+		case byte:
+			q.primary = append(q.primary, []byte{t})
+		default:
+			q.primary = append(q.primary, t)
+		}
 	}
 
 	if q.index == nil {
@@ -83,9 +88,10 @@ func (q *Query) List(values ...interface{}) *Query {
 			q.object.panic("List should have less than " + strconv.Itoa(maxFields) + " params (number of primary keys)")
 		}
 	} else {
-		if len(q.primary) != 1 {
+		fmt.Println("TMP mode for multi value index")
+		/*if len(q.primary) != 1 {
 			q.object.panic("List should have 1 property since indexes support only 1 value")
-		}
+		}*/
 	}
 	return q
 }
@@ -131,13 +137,19 @@ func (q *Query) Promise() *PromiseSlice {
 	return q.execute()
 }
 
+// Do will return the primise for the query for current transaction
+func (q *Query) Do(tr *Transaction) *PromiseSlice {
+	return q.Promise().Do(tr)
+}
+
 // ScanAll scans the query result into the passed
 func (q *Query) ScanAll(slicePointer interface{}) error {
-	// sould be queried here
 	return q.execute().ScanAll(slicePointer)
-	//sliceI := q.execute()
-	//slice := sliceI.(*Slice)
-	//return slice.ScanAll(slicePointer)
+}
+
+// TryAll scans the query result within the transaction
+func (q *Query) TryAll(tr *Transaction, slicePointer interface{}) {
+	q.execute().TryAll(tr, slicePointer)
 }
 
 // Slice will return slice object
@@ -169,7 +181,7 @@ func (q *Query) execute() *PromiseSlice {
 			for _, needed := range values {
 				v, err := needed.fetch()
 				if err != nil {
-					return p.done(slice)
+					return p.done(&slice)
 				}
 				slice.Append(v)
 			}
@@ -179,6 +191,7 @@ func (q *Query) execute() *PromiseSlice {
 		var sub subspace.Subspace
 		sub = q.object.primary
 		if q.primary != nil {
+
 			sub = sub.Sub(q.primary...)
 		}
 		start, end := sub.FDBRangeKeys()

@@ -15,16 +15,16 @@ type ObjectBuilder struct {
 	waitInit sync.WaitGroup // waiter for main directory
 	waitAll  sync.WaitGroup // waiter for all planned async operations
 	mux      sync.Mutex
-	schema   schemaFull
+	scheme   schemeFull
 }
 
 func (ob *ObjectBuilder) panic(text string) {
 	panic("Stored error, object «" + ob.object.name + "» declaration: " + text)
 }
 
-func (ob *ObjectBuilder) buildSchema(schemaObj interface{}) {
-	t := reflect.TypeOf(schemaObj)
-	v := reflect.ValueOf(schemaObj)
+func (ob *ObjectBuilder) buildScheme(schemeObj interface{}) {
+	t := reflect.TypeOf(schemeObj)
+	v := reflect.ValueOf(schemeObj)
 	if v.Kind() == reflect.Ptr {
 		t = t.Elem()
 		v = v.Elem()
@@ -67,6 +67,10 @@ func (ob *ObjectBuilder) buildSchema(schemaObj interface{}) {
 			} else {
 				o.keysCount++
 			}
+			// init unique field here, tmp disabled, need to test
+			//if tag.unique {
+			//	ob.Unique(field.Name)
+			//}
 		}
 	}
 	ob.mux.Unlock()
@@ -91,18 +95,24 @@ func (ob *ObjectBuilder) addIndex(indexKey string) *Index {
 	}
 
 	ob.waitAll.Add(1)
-	//fmt.Println("all(3) +1")
 	go func() {
 		ob.waitInit.Wait()
+		// at this point in time all index properties are probably set up and configured
 		indexSubspace, err := o.dir.CreateOrOpen(o.db, []string{indexKey}, nil)
 		if err != nil {
 			panic(err)
 		}
 		index.dir = indexSubspace
+		if index.needValueStore() {
+			indexSubspace, err = o.dir.CreateOrOpen(o.db, []string{indexKey, "value"}, nil)
+			if err != nil {
+				panic(err)
+			}
+			index.valueDir = indexSubspace
+		}
 		ob.mux.Lock()
 		o.indexes[indexKey] = &index
 		ob.mux.Unlock()
-		//fmt.Println("all(3) -1")
 		ob.waitAll.Done()
 	}()
 
@@ -149,15 +159,15 @@ func (ob *ObjectBuilder) need() {
 	o := ob.object
 	o.init()
 	res, err := o.db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
-		schema := schemaFull{}
-		schema.load(ob, o.miscDir, tr)
-		return schema, nil
+		scheme := schemeFull{}
+		scheme.load(ob, o.miscDir, tr)
+		return scheme, nil
 	})
 	if err != nil {
 		ob.panic("could not read schema")
 	}
 	ob.mux.Lock()
-	ob.schema = res.(schemaFull)
+	ob.scheme = res.(schemeFull)
 	ob.mux.Unlock()
 	//fmt.Println("init -1")
 	ob.waitInit.Done()
@@ -168,7 +178,7 @@ func (ob *ObjectBuilder) need() {
 // Done will finish the object
 func (ob *ObjectBuilder) Done() *Object {
 	ob.waitAll.Wait()
-	ob.schema.buildCurrent(ob)
+	ob.scheme.buildCurrent(ob)
 	return ob.object
 }
 
@@ -276,6 +286,7 @@ func (ob *ObjectBuilder) Unique(names ...string) *ObjectBuilder {
 }
 
 // UniqueOptional index: if object with same field value already presented, Set and Add will return an ErrAlreadyExist
+// If the value is empty index do not set
 func (ob *ObjectBuilder) UniqueOptional(names ...string) *ObjectBuilder {
 	index := ob.addFieldIndex(names)
 	index.Unique = true
@@ -362,8 +373,8 @@ func (ob *ObjectBuilder) Counter(fieldNames ...string) *Counter {
 // N2N Creates object to object relation between current object and other one.
 // Other words it represents relations when unlimited number of host objects connected to unlimited
 // amount of client objects
-func (ob *ObjectBuilder) N2N(client *ObjectBuilder) *Relation {
-	rel := Relation{}
+func (ob *ObjectBuilder) N2N(client *ObjectBuilder, name string) *Relation {
+	rel := Relation{name: name}
 	rel.init(RelationN2N, ob.object, client.object)
 	return &rel
 }

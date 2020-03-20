@@ -16,10 +16,19 @@ func searchGetInputWords(index *Index, input *Struct) (words []string) {
 	return
 }
 
+func searchWordGeneralize(word string) string {
+	word = strings.ReplaceAll(word, "ё", "е")
+	return strings.ToLower(word)
+}
+
 func searchSplit(str string) (words []string) {
-	words = searchWordSplit.Split(str, -1)
-	for k, word := range words {
-		words[k] = strings.ToLower(word)
+	splits := searchWordSplit.Split(str, -1)
+
+	for _, word := range splits {
+		if word == "" || word == "." || word == "," || word == "!" {
+			continue
+		}
+		words = append(words, searchWordGeneralize(word))
 	}
 	return
 }

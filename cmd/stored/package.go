@@ -10,12 +10,12 @@ import (
 // Package will return
 type Package struct {
 	files   []File
-	objects []Object
+	objects map[string]Object
 	gen     Generator
 }
 
 func (p *Package) init() {
-	p.objects = []Object{}
+	p.objects = map[string]Object{}
 	p.files = []File{}
 	p.gen = Generator{}
 }
@@ -46,10 +46,21 @@ func (p *Package) parse(directory string, text interface{}) {
 	}
 }
 
+func (p *Package) genTopObject() string { // generates top level object with all instances of database
+	objs := ""
+	for _, obj := range p.objects {
+		objs += "	" + obj.name + " " + obj.name + "Stored\n"
+	}
+	return "var db StoredDB = StoredDB{}\ntype StoredDB struct {\n" + objs + "}"
+}
+
 func (p *Package) generate() {
 	blocks := []string{}
+	blocks = append(blocks, p.genTopObject())
 	for _, obj := range p.objects {
-		blocks = append(blocks, obj.generate())
+		if len(obj.fields) > 0 {
+			blocks = append(blocks, obj.generate())
+		}
 	}
 	p.gen.generate(blocks)
 }

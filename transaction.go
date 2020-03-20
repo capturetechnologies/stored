@@ -63,27 +63,34 @@ func (t *Transaction) transact() {
 		return
 	}
 	if t.started {
-		_, t.err = t.execute()
+		_, err := t.execute()
+		if t.err == nil {
+			t.err = err
+		}
 		return
 	}
 	t.started = true
 
 	db := t.db
+	var err error
 	if t.isReadOnly() {
-		_, t.err = db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
+		_, err = db.ReadTransact(func(tr fdb.ReadTransaction) (interface{}, error) {
 			t.clear()
 			t.readTr = tr.Snapshot()
 			return t.execute()
 		})
 		t.confirm()
 	} else {
-		_, t.err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+		_, err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 			t.clear()
 			t.tr = tr
 			t.readTr = tr
 			return t.execute()
 		})
 		t.confirm()
+	}
+	if t.err == nil {
+		t.err = err
 	}
 }
 

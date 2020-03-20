@@ -41,8 +41,10 @@ type Tag struct {
 	Name          string
 	Primary       bool
 	mutable       bool
+	unique        bool
 	AutoIncrement bool
 	UnStored      bool // means this field doesn't stored inside main object data
+
 }
 
 // ParseTag converts object stored tag to sturct with options
@@ -69,6 +71,8 @@ func (f *Field) ParseTag() *Tag {
 				tag.Primary = true
 			case "mutable":
 				tag.mutable = true
+			case "unique":
+				tag.unique = true
 			case "autoincrement":
 				tag.AutoIncrement = true
 			default:
@@ -170,6 +174,8 @@ func (f *Field) setTupleValue(value reflect.Value, interfaceValue interface{}) {
 			panic("incorrect key tuple")
 		}
 		interfaceValue = bytes[0]
+	case reflect.Uint64:
+		interfaceValue = uint64(interfaceValue.(int64))
 	}
 	objField.Set(reflect.ValueOf(interfaceValue))
 }

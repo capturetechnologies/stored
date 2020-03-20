@@ -19,13 +19,14 @@ func (s *Struct) setField(field *Field, data []byte) {
 	objField := s.value.Field(field.Num)
 	if objField.Kind() == reflect.Ptr {
 		if objField.IsNil() {
-			if len(data) == 0 {
-				return
-			}
 			// This code is working in main case
 			t := field.Value.Type().Elem()
 			value := reflect.New(t)
 			objField.Set(value) // creating empty object to fill it below
+
+			if len(data) == 0 { // no reason to go further id no data passed
+				return
+			}
 		}
 
 	}
@@ -69,7 +70,9 @@ func (s *Struct) Fill(o *Object, v *Value) {
 	for fieldName, binaryValue := range v.raw {
 		field, ok := o.fields[fieldName]
 		if ok {
+			//if len(binaryValue) > 0 { // so raw should be empty in a first place
 			s.setField(field, binaryValue)
+			//}
 		} else {
 			//o.log("unknown field «" + fieldName + "», skipping")
 			//nothing to worry about

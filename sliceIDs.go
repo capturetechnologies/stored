@@ -81,11 +81,21 @@ func (s *SliceIDs) ScanAll(slicePointer interface{}) (e error) {
 			value := s.values[n]
 			objField := newStruct.Field(s.dataField.Num)
 			if !objField.CanSet() {
-				s.object.panic("Could not set object primary key " + s.dataField.Name)
+				s.object.panic("Could not set object data field " + s.dataField.Name)
 			}
-			keyInterface := s.dataField.ToInterface(value)
-			interfaceValue := reflect.ValueOf(keyInterface)
-			objField.Set(interfaceValue)
+			if objField.Kind() == reflect.Ptr && len(value) == 0 {
+				// setting an emby object to fix the problem
+				t := objField.Type().Elem()
+				newFieldObject := reflect.New(t)
+				objField.Set(newFieldObject)
+
+			} else {
+
+				keyInterface := s.dataField.ToInterface(value)
+				interfaceValue := reflect.ValueOf(keyInterface)
+				objField.Set(interfaceValue)
+			}
+			//HERE
 		}
 
 		if pointer {

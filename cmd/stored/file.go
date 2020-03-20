@@ -68,7 +68,7 @@ func (f *File) parseObjects() {
 		if genDecl, ok := decl.(*ast.GenDecl); ok {
 
 			for _, s := range genDecl.Specs {
-				fmt.Println("type", s)
+				//fmt.Println("type", s)
 				if ts, ok := s.(*ast.TypeSpec); ok {
 
 					if structType, ok := ts.Type.(*ast.StructType); ok {
@@ -78,22 +78,56 @@ func (f *File) parseObjects() {
 							structType: structType,
 						}
 						obj.parse()
-						f.pack.objects = append(f.pack.objects, obj)
+						f.pack.objects[obj.name] = obj
 					}
 				}
 			}
 		}
+
 	}
 }
 
 func (f *File) parseFuncs() {
+	for _, decl := range f.ast.Decls {
+		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
+			if funcDecl.Recv == nil {
+				continue
+			}
+			source := funcDecl.Recv.List[0]
+			if len(source.Names) < 1 {
+				continue
+			}
+			sourceName := source.Names[0].Name
+			objectName := ""
+			switch sourceType := source.Type.(type) {
+			case *ast.StarExpr:
+				ident, ok := sourceType.X.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				objectName = ident.Name
+			case *ast.Ident:
+				objectName = sourceType.Name
+			default:
+				fmt.Println()
+				continue
+			}
 
+			obj, ok := f.pack.objects[objectName]
+			if ok {
+				obj.shortForm = sourceName
+				f.pack.objects[objectName] = obj
+			}
+		}
+	}
 }
 
 // Process will parse file to check
 func (f *File) process() {
 	// will fill data about all structs in file
 	f.parseObjects()
+	// will set an func name used for each object
+	f.parseFuncs()
 	// will fill data about all comments in file
 	f.parseComments()
 }

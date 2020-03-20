@@ -561,7 +561,10 @@ func (o *Object) Delete(objOrID interface{}) *PromiseErr {
 			object := structAny(value.Interface())
 
 			// remove object key
-			start, end := sub.FDBRangeKeys()
+			//start, end := sub.FDBRangeKeys()
+			start := sub.FDBKey()
+			end := append(start, uint8(255))
+
 			p.tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 
 			// remove indexes
@@ -595,7 +598,6 @@ func (o *Object) GetBy(objectPtr interface{}, indexKeys ...string) *PromiseErr {
 		if err != nil {
 			return p.fail(err)
 		}
-
 		start, end := sub.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
@@ -873,6 +875,28 @@ func (o *Object) Reindex() {
 					fmt.Println("PUSHED BACK, err", err)
 					stop = true
 				}
+			}
+		})
+	}
+}
+
+// Migrate will move date from one storage to another
+func (o *Object) Migrate(migrateTo *Object) {
+	query := o.ListAll().Limit(1000)
+	num := 0
+	stop := false
+	for query.Next() {
+		query.Slice().Each(func(item interface{}) {
+			num++
+			if stop {
+				return
+			}
+			fmt.Println(".", num)
+
+			err := migrateTo.Set(item).Err()
+			if err != nil {
+				fmt.Println("[!] MIGRATION error:", err)
+				stop = true
 			}
 		})
 	}

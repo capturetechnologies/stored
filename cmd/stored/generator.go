@@ -76,9 +76,19 @@ func (g *Generator) write(src string) {
 	}
 }
 
+func (g *Generator) generateUtil() string {
+	return `
+func _stored_vInt(writer io.Writer, v int) error {
+	var _stored_vInt_buf = make([]byte, 8)
+	l := binary.PutUvarint(_stored_vInt_buf, uint64(v))
+	_, err := writer.Write(_stored_vInt_buf[:l])
+	return err
+}`
+}
+
 // generate triggers code generation
 func (g *Generator) generate(blocks []string) {
-	src := "\n\n" + prefix + "\n/*"
+	src := "\n\n" + prefix + "\n/*" + g.generateUtil()
 	for _, block := range blocks {
 		src += "\n" + block
 	}

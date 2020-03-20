@@ -55,7 +55,7 @@ func (d *Directory) init() {
 }
 
 // Object declares new object for document layer
-func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
+func (d *Directory) Object(name string, schemeObj interface{}) *ObjectBuilder {
 	object := &Object{
 		name:      name,
 		db:        &d.Cluster.db,
@@ -67,7 +67,7 @@ func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
 		waitAll: sync.WaitGroup{},
 		object:  object,
 	}
-	ob.buildSchema(schemaObj)
+	ob.buildScheme(schemeObj)
 	d.mux.Lock()
 	d.objects[name] = object
 	d.mux.Unlock()
@@ -80,7 +80,7 @@ func (d *Directory) Object(name string, schemaObj interface{}) *ObjectBuilder {
 
 	/// OLD
 	/*object := &Object{}
-	object.init(name, &d.Cluster.db, d, schemaObj)
+	object.init(name, &d.Cluster.db, d, schemeObj)
 	d.mux.Lock()
 	d.objects[name] = object
 	d.mux.Unlock()
@@ -147,7 +147,9 @@ func (d *Directory) Write(callback func(*Transaction)) *Transaction {
 		callback(&t)
 		return nil, t.Err()
 	})
-	t.err = err
+	if t.err == nil {
+		t.err = err
+	}
 	return &t
 }
 
