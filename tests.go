@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"capture/stored/packed"
+	"stored/packed"
 )
 
 type user struct {
