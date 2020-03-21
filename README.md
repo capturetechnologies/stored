@@ -72,6 +72,7 @@ user.Primary("chat_id", "message_id")
 In this case the combination of values will be the primary key. Fields order should not change.
 
 #### IDDate
+This is the best way to generate new indexes for objects with fields like int64.
 IDDate is most suitable way to generate unique identifiers for the most cases. IDDate will generate
 int64 identifier based on current timestamp plus some random seed. This way ID could serve double purpose
 storing ID plus storing timestamp of adding the object.
