@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"stored/packed"
+	"github.com/capturetechnologies/stored/packed"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/subspace"

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"stored/packed"
+	"github.com/capturetechnologies/stored/packed"
 )
 
 type user struct {
