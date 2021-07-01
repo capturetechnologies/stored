@@ -322,7 +322,6 @@ func (o *Object) Set(objectPtr interface{}) *PromiseErr {
 			} else {
 				addNew = true
 			}
-
 			err = o.doWrite(p.tr, sub, primaryTuple, input, oldObject, addNew)
 			if err != nil {
 				p.fail(err)

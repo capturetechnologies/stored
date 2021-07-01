@@ -169,7 +169,7 @@ func (q *Query) execute() *PromiseSlice {
 			for _, needed := range values {
 				v, err := needed.fetch()
 				if err != nil {
-					return p.done(slice)
+					return p.done(&slice)
 				}
 				slice.Append(v)
 			}
