@@ -15,7 +15,6 @@ const postfix = `// End of STORED generated code`
 type Generator struct {
 	file *File
 	pos  int
-	src  string
 }
 
 func (g *Generator) setPosition(file *File, pos int) {
@@ -50,7 +49,7 @@ func (g *Generator) cutOldCode(code string) (string, error) {
 	return code, nil
 }
 
-func (g *Generator) write() {
+func (g *Generator) write(src string) {
 	if g.file == nil {
 		fmt.Printf("no generate tag found, please put this tag in your code //go:generate $GOPATH/bin/stored")
 		return
@@ -68,7 +67,7 @@ func (g *Generator) write() {
 		return
 	}
 
-	code = code[0:g.pos] + g.src + code[g.pos:]
+	code = code[0:g.pos] + src + code[g.pos:]
 	//lines := bytes.Split(b, []byte{'\n'})
 
 	err = ioutil.WriteFile(g.file.name, []byte(code), 0644)
@@ -77,21 +76,22 @@ func (g *Generator) write() {
 	}
 }
 
-func (g *Generator) line(line string) {
-	g.src += "\n" + line
+func (g *Generator) generateUtil() string {
+	return `
+func _stored_vInt(writer io.Writer, v int) error {
+	var _stored_vInt_buf = make([]byte, 8)
+	l := binary.PutUvarint(_stored_vInt_buf, uint64(v))
+	_, err := writer.Write(_stored_vInt_buf[:l])
+	return err
+}`
 }
 
-func (g *Generator) block(line string) {
-	g.src += "\n" + line + "\n"
-}
-
-// Generate triggers code generation
-func (g *Generator) Generate() {
-	g.line(prefix)
-	/*g.line(`func test() {
-		fmt.Println("wow")
-	}`)*/
-	g.line(postfix)
-
-	//g.write()
+// generate triggers code generation
+func (g *Generator) generate(blocks []string) {
+	src := "\n\n" + prefix + "\n/*" + g.generateUtil()
+	for _, block := range blocks {
+		src += "\n" + block
+	}
+	src += "*/\n" + postfix
+	g.write(src)
 }

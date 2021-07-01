@@ -419,6 +419,37 @@ func (o *Object) UpdateField(objOrID interface{}, fieldName string, callback fun
 	return p
 }
 
+// GetField  will fill fetch the mutable field data, and fill the passed object
+func (o *Object) GetField(objectPtr interface{}, fieldName string) *PromiseErr {
+	input := structEditable(objectPtr)
+	field := o.field(fieldName)
+	if !field.mutable {
+		o.panic("field should be mutable to use GetField method")
+	}
+	p := o.promiseErr()
+	p.do(func() Chain {
+		primaryTuple := input.getPrimary(o)
+		sub := o.sub(primaryTuple)
+
+		key := sub.Pack(tuple.Tuple{field.Name})
+
+		keyPromise := p.tr.Get(key)
+
+		return func() Chain {
+			keyData, err := keyPromise.Get()
+			if err != nil {
+				return p.fail(err)
+			}
+			if len(keyData) == 0 {
+				return p.ok()
+			}
+			input.setField(field, keyData)
+			return p.ok()
+		}
+	})
+	return p
+}
+
 // SetField sets any value to requested field
 func (o *Object) SetField(objectPtr interface{}, fieldName string) *PromiseErr {
 	input := structAny(objectPtr)
@@ -493,7 +524,6 @@ func (o *Object) Add(data interface{}) *PromiseErr {
 				return p.fail(err)
 			}
 			if sub.Contains(firstKey) {
-				fmt.Println("ALREADY EXIST PRIMARY KEY", firstKey)
 				return p.fail(ErrAlreadyExist)
 			}
 
@@ -530,7 +560,10 @@ func (o *Object) Delete(objOrID interface{}) *PromiseErr {
 			object := structAny(value.Interface())
 
 			// remove object key
-			start, end := sub.FDBRangeKeys()
+			//start, end := sub.FDBRangeKeys()
+			start := sub.FDBKey()
+			end := append(start, uint8(255))
+
 			p.tr.ClearRange(fdb.KeyRange{Begin: start, End: end})
 
 			// remove indexes
@@ -564,7 +597,6 @@ func (o *Object) GetBy(objectPtr interface{}, indexKeys ...string) *PromiseErr {
 		if err != nil {
 			return p.fail(err)
 		}
-
 		start, end := sub.FDBRangeKeys()
 		r := fdb.KeyRange{Begin: start, End: end}
 
@@ -842,6 +874,28 @@ func (o *Object) Reindex() {
 					fmt.Println("PUSHED BACK, err", err)
 					stop = true
 				}
+			}
+		})
+	}
+}
+
+// Migrate will move date from one storage to another
+func (o *Object) Migrate(migrateTo *Object) {
+	query := o.ListAll().Limit(1000)
+	num := 0
+	stop := false
+	for query.Next() {
+		query.Slice().Each(func(item interface{}) {
+			num++
+			if stop {
+				return
+			}
+			fmt.Println(".", num)
+
+			err := migrateTo.Set(item).Err()
+			if err != nil {
+				fmt.Println("[!] MIGRATION error:", err)
+				stop = true
 			}
 		})
 	}

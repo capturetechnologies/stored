@@ -1,8 +1,8 @@
 # FoundationDB layer
-In development. Use with care, schema are about to change in future.
+In development. Use with care, schema are about to change in the future.
 
 ## Init the database
-Before you start STORED document layer must be inited.
+Before you start STORED document, a layer must be inited.
 This way you will describe all the objects and indexes. Init part should be executed before
 the actual part of your application. Example:
 ```Go
@@ -23,7 +23,7 @@ func init() { // init database
   dbChat = chat.Done()
 }
 ```
-It is required to create variable for each database object. This may seems like unnecessary
+It is required to create a variable for each database object. This may seems like unnecessary
 code but this approach allowes you to have much more control over your source code. For
 example it makes easy to find all usage of specific object in your codebase.
 
@@ -72,7 +72,8 @@ user.Primary("chat_id", "message_id")
 In this case the combination of values will be the primary key. Fields order should not change.
 
 #### IDDate
-IDDate is most suitable way to generate unique identifiers for the most cases. IDDate will generate
+This is the best way to generate new indexes for objects with fields like int64.
+IDDate is most suitable way to generate unique identifiers in most cases. IDDate will generate
 int64 identifier based on current timestamp plus some random seed. This way ID could serve double purpose
 storing ID plus storing timestamp of adding the object.
 Since int64 is not precise enough to completely illuminate collisions, if field is in primary index at the

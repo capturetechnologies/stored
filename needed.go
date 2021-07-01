@@ -12,8 +12,15 @@ type needObject struct {
 }
 
 func (n *needObject) need(tr fdb.ReadTransaction, sub subspace.Subspace) {
-	start, end := sub.FDBRangeKeys()
+
+	//fmt.Println("need sub", sub)
+	//start, end := sub.FDBRangeKeys()
+	//r := fdb.KeyRange{Begin: start, End: end}
+
+	start := sub.FDBKey()
+	end := append(start, uint8(255))
 	r := fdb.KeyRange{Begin: start, End: end}
+	//fmt.Println("fetching range", start, end)
 	n.rangeResult = tr.GetRange(r, fdb.RangeOptions{Mode: fdb.StreamingModeWantAll})
 }
 
@@ -23,6 +30,7 @@ func (n *needObject) fetch() (*Value, error) {
 		return nil, err
 	}
 	if len(rows) == 0 {
+		// problem is here so shouldbe checked
 		return nil, ErrNotFound
 	}
 	value := Value{object: n.object}

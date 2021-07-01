@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/capturetechnologies/stored/packed"
@@ -73,12 +74,32 @@ type extendedUser struct {
 	Extra *extra `stored:"extra"`
 }
 
+// AssertErrors list of errors
+var AssertErrors = []string{}
+
+// AssertMux mutex for errors
+var AssertMux sync.Mutex
+
+// return 1 if error
 func assert(name string, err error) {
 	if err == nil {
 		fmt.Println("Success «" + name + "»")
-	} else {
-		fmt.Println("Fail «"+name+"»:", err)
+		return
 	}
+	errStr := "Fail «" + name + "»: " + err.Error()
+	fmt.Println(errStr)
+	AssertMux.Lock()
+	AssertErrors = append(AssertErrors, errStr)
+	AssertMux.Unlock()
+}
+
+// TestsCheck will return list of tests result
+func TestsCheck() []string {
+	AssertMux.Lock()
+	res := make([]string, len(AssertErrors))
+	copy(res, AssertErrors)
+	AssertMux.Unlock()
+	return res
 }
 
 func testsSetGet(smUser *Object) error {
@@ -882,7 +903,7 @@ func testsN2NClientCounter(dir *Directory) error {
 	chat.Primary("id")
 	dbChat := chat.Done()
 
-	n2n := user.N2N(chat)
+	n2n := user.N2N(chat, "")
 
 	dbChat.Clear()
 	dbUser.Clear()
@@ -1064,10 +1085,10 @@ func TestsRun(db *Cluster) {
 	n2nUser.AutoIncrement("id")
 	n2nChat := dir.Object("n2n_chat", chatN2N{})
 	n2nChat.AutoIncrement("id")
-	n2nUserChat := n2nUser.N2N(n2nChat)
+	n2nUserChat := n2nUser.N2N(n2nChat, "")
 	n2nUserChat.Counter(true)
 
-	n2nUserChat2 := n2nUser.N2N(n2nChat)
+	n2nUserChat2 := n2nUser.N2N(n2nChat, "")
 	n2nUserChat2.HostData("n2n")
 	n2nUserChat2.ClientData("n2n")
 
@@ -1076,12 +1097,12 @@ func TestsRun(db *Cluster) {
 
 	dbMessage := dir.Object("message", message{})
 	dbMessage.Primary("chat_id", "id")
-	n2nMessageUser := dbMessage.N2N(n2nUser)
+	n2nMessageUser := dbMessage.N2N(n2nUser, "")
 
 	// n2n_self
 	n2nSelfUser := dir.Object("n2nselfuser", user{})
 	n2nSelfUser.AutoIncrement("id")
-	n2nSelfUserUser := n2nSelfUser.N2N(n2nSelfUser)
+	n2nSelfUserUser := n2nSelfUser.N2N(n2nSelfUser, "")
 
 	//dbExtended := dir.Object("ex_user", extendedUser{})
 

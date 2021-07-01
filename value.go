@@ -79,7 +79,9 @@ func (v *Value) FromKeyValue(sub subspace.Subspace, rows []fdb.KeyValue) {
 			fmt.Println("field is not string")
 			continue
 		}
-		v.raw[fieldName] = row.Value
+		if len(row.Value) > 0 {
+			v.raw[fieldName] = row.Value
+		}
 	}
 
 	// getting primary fields

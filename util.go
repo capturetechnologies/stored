@@ -57,7 +57,7 @@ const (
 	GenIDNone GenIDType = iota
 	// GenIDDate is option for generating unique id using unix timestamp and random combined,
 	GenIDDate
-	// GenIDRandom if you do not whant unix timestamp in your ids
+	// GenIDRandom if you do not want unix timestamp in your ids
 	GenIDRandom
 )
 
