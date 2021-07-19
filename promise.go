@@ -155,6 +155,15 @@ func (p *Promise) After(do func() PromiseAny) *Promise {
 	return p
 }
 
+// Submit will submit promise to transaction. Once promise is completed callback will be called. If callback function will return error – the transaction will be cancelled.
+func (p *Promise) Submit(t *Transaction, onDone func(err error) error) {
+	t.tasks = append(t.tasks, transactionTask{
+		promise: p,
+		check:   false,
+		onDone:  onDone,
+	})
+}
+
 // Check will perform promise in parallel with other promises whithin transaction
 // without returning the result. But if Promise will return error full transaction
 // will be cancelled and error will be returned

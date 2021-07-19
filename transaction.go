@@ -8,6 +8,7 @@ import (
 
 type transactionTask struct {
 	promise *Promise
+	onDone  func(err error) error
 	check   bool
 }
 
@@ -135,6 +136,13 @@ func (t *Transaction) execute() (ret interface{}, err error) {
 					t.tasks = append(t.tasks, transactionTask{promise: after})
 					chains = append(chains, after.chain)
 					next = true
+				}
+				if task.onDone != nil {
+					promise.err = task.onDone(promise.err)
+					if promise.err != nil {
+						return // cancel the transaction
+					}
+
 				}
 			}
 		}

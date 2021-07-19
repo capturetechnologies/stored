@@ -179,12 +179,10 @@ func (i *Index) Write(tr fdb.Transaction, primaryTuple tuple.Tuple, input, oldOb
 
 	if i.Unique {
 		previousPromise := tr.Get(i.dir.Pack(key))
-		fmt.Println("previous key", i.dir.Pack(key))
 
 		tr.Set(i.dir.Pack(key), primaryTuple.Pack()) // will be cancelled in case of error
 
 		previousBytes, err := previousPromise.Get()
-		fmt.Println("previous index", previousBytes)
 		if err != nil {
 			return err
 		}

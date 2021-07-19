@@ -88,7 +88,6 @@ func (q *Query) List(values ...interface{}) *Query {
 			q.object.panic("List should have less than " + strconv.Itoa(maxFields) + " params (number of primary keys)")
 		}
 	} else {
-		fmt.Println("TMP mode for multi value index")
 		/*if len(q.primary) != 1 {
 			q.object.panic("List should have 1 property since indexes support only 1 value")
 		}*/
